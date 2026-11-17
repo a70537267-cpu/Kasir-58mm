@@ -152,29 +152,29 @@
 
   <!-- KOTAK SOLUSI BLUETOOTH CLASSIC / DIAGNOSTIK (TAMPIL DI SEMUA MENU) -->
   <div id="btHelpBox" class="hidden max-w-6xl mx-auto w-full px-4 pt-3">
-    <div class="rounded-2xl bg-rose-50 border border-rose-200 p-3.5 text-xs text-rose-900 shadow-xs space-y-2.5">
+    <div class="rounded-2xl bg-emerald-50 border border-emerald-200 p-3.5 text-xs text-emerald-950 shadow-xs space-y-2.5">
       <div class="flex items-start justify-between gap-2">
         <div class="flex items-center gap-2">
-          <span class="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0"></span>
-          <span class="font-bold text-rose-900 text-xs sm:text-sm">Printer Bluetooth Classic / Butuh Jembatan RawBT</span>
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0 animate-pulse"></span>
+          <span class="font-bold text-emerald-900 text-xs sm:text-sm">Mode Cetak Bluetooth Classic (RawBT) Otomatis Aktif</span>
         </div>
-        <button type="button" onclick="document.getElementById('btHelpBox').classList.add('hidden')" class="text-rose-600 hover:text-rose-800 font-bold px-1.5 py-0.5 rounded-lg hover:bg-rose-100 cursor-pointer">✕</button>
+        <button type="button" onclick="document.getElementById('btHelpBox').classList.add('hidden')" class="text-emerald-700 hover:text-emerald-900 font-bold px-1.5 py-0.5 rounded-lg hover:bg-emerald-100 cursor-pointer">✕</button>
       </div>
-      <p id="btHelpReason" class="text-rose-800 leading-relaxed"></p>
-      <div class="bg-white/80 rounded-xl p-2.5 border border-rose-200/80 space-y-1.5 text-[11px] text-slate-700">
-        <p class="font-bold text-slate-900">Cara Cetak ke Printer Bluetooth Classic (Panda, Eppos, RPP02N, Zjiang, VSC):</p>
+      <p id="btHelpReason" class="text-emerald-900 leading-relaxed"></p>
+      <div class="bg-white/90 rounded-xl p-2.5 border border-emerald-200/80 space-y-1.5 text-[11px] text-slate-700">
+        <p class="font-bold text-slate-900">Agar Langsung Tercetak ke Gprinter / Printer 58mm Anda:</p>
         <ol class="list-decimal pl-4 space-y-1">
-          <li>Pastikan printer sudah dipasangkan (<em>Pair</em>) di <strong>Pengaturan Bluetooth HP</strong> (PIN: <code class="bg-slate-100 px-1 rounded">0000</code> atau <code class="bg-slate-100 px-1 rounded">1234</code>).</li>
-          <li>Pasang aplikasi gratis <strong>RawBT Print Service</strong> dari Play Store, buka sekali lalu pilih printer Bluetooth Anda di dalamnya.</li>
-          <li>Ketuk tombol <strong>Aktifkan Mode RawBT</strong> di bawah ini agar tombol <em>Cetak Struk</em> otomatis mencetak ke printer Anda.</li>
+          <li>Pasang aplikasi gratis <strong>RawBT Print Service</strong> dari Play Store (jika belum terpasang).</li>
+          <li>Buka aplikasi <strong>RawBT</strong> sekali &rarr; masuk ke <em>Settings / Pengaturan</em> &rarr; pilih printer Bluetooth Anda (misal <strong>Gprinter_381F</strong>, PIN: <code class="bg-slate-100 px-1 rounded">0000</code> atau <code class="bg-slate-100 px-1 rounded">1234</code>).</li>
+          <li>Kembali ke halaman ini, lalu ketuk tombol hijau <strong>Langsung Cetak Struk</strong> di bawah ini!</li>
         </ol>
       </div>
       <div class="flex flex-wrap items-center gap-2 pt-0.5">
-        <button type="button" onclick="enableRawBtFallbackMode()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer">
-          Aktifkan Mode RawBT
-        </button>
         <button type="button" onclick="printViaRawBT()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer">
-          Tes Cetak via RawBT
+          Langsung Cetak Struk
+        </button>
+        <button type="button" onclick="printTestPage()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition cursor-pointer">
+          Tes Print 58mm
         </button>
         <a href="https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold text-xs transition">
           Unduh RawBT (Play Store)
@@ -660,6 +660,7 @@
 
     const STORAGE_KEY_CONFIG = 'cetakstruk58_config_v1';
     const STORAGE_KEY_HISTORY = 'cetakstruk58_history_v1';
+    const STORAGE_KEY_RAWBT = 'cetakstruk58_rawbt_v1';
 
     let receiptItems = [
       { id: 1, name: "Kopi Susu Gula Aren", qty: 2, price: 15000 },
@@ -770,12 +771,10 @@
         return [l + ' '.repeat(spaces) + r];
       }
 
-      // Jika nilai kanan lebih panjang dari lebar kertas, taruh label di atas dan bungkus nilai
       if (r.length >= width - 2) {
         return [l, ...wrapText(r, width)];
       }
 
-      // Label di baris atas, nilai rata kanan di baris berikutnya
       const padRight = Math.max(0, width - r.length);
       return [...wrapText(l, width), ' '.repeat(padRight) + r];
     }
@@ -832,17 +831,14 @@
         }
       });
 
-      // Di layar HP, tampilkan panel kertas struk & tombol cetak saat membuka Kasir atau Scan Foto
       const rightCol = document.getElementById('rightPreviewColumn');
       if (rightCol) {
         if (tabName === 'kasir' || tabName === 'scan') {
           rightCol.classList.remove('hidden');
           rightCol.classList.add('flex');
         } else {
-          rightCol.classList.add('hidden');
-          rightCol.classList.remove('hidden');
-          rightCol.classList.add('hidden', 'lg:flex');
           rightCol.classList.remove('flex');
+          rightCol.classList.add('hidden', 'lg:flex');
         }
       }
 
@@ -1139,7 +1135,6 @@
       });
     }
 
-    // Pra-pemrosesan gambar sebelum OCR: potong status bar HP atas/bawah & tingkatkan kontras
     function preprocessImageForOcr(dataUrl) {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -1161,7 +1156,6 @@
           ctx.fillRect(0, 0, dstW, dstH);
           ctx.drawImage(img, 0, cropTop, srcW, srcH, 0, 0, dstW, dstH);
 
-          // Tingkatkan kontras grayscale agar teks tipis e-wallet/bank terbaca jelas
           const imgData = ctx.getImageData(0, 0, dstW, dstH);
           const data = imgData.data;
           for (let i = 0; i < data.length; i += 4) {
@@ -1239,7 +1233,6 @@ Aturan ketat:
       return normalizeScannedLines(structuredLines, width).join('\n');
     }
 
-    // Rekonstruksi baris spasial kiri-kanan dari koordinat kata Tesseract
     function buildSpatialOcrText(ocrData) {
       if (!ocrData || !Array.isArray(ocrData.lines) || ocrData.lines.length === 0) {
         return ocrData?.text || '';
@@ -1280,7 +1273,6 @@ Aturan ketat:
       return lines.map(l => l.text).join('\n');
     }
 
-    // Parser khusus e-wallet (DANA, GoPay/Jago, OVO, ShopeePay), Mobile Banking, dan Token PLN
     function parseRawOcrToReceiptLines(rawText) {
       const width = parseInt(storeConfig.charWidth, 10) || 32;
       const noiseRegex = /(detail transaksi|bagikan|selesai|kembali|unduh|simpan|chat\s*dengan\s*cs|butuh bantuan|transfer lagi|split\s*-\s*atur|bagi bukti|harga tercantum|sudah termasuk ppn|bisa dapet|cashback|drarbpulsa|id dana\s*\d)/i;
@@ -1288,7 +1280,7 @@ Aturan ketat:
       const rawLines = String(rawText || '')
         .split('\n')
         .map(l => l.replace(/^[)\]}>@©®™•▪●\d\s]{1,4}(?=(Transaksi berhasil|BUTUH BANTUAN|Chat\s*dengan|Transfer lagi))/i, '').trim())
-        .map(l => l.replace(/(\*{2,4}\d{2,4})\s+(\d{1,2})\b/g, '$1$2')) // Gabungkan ****487 4 -> ****4874
+        .map(l => l.replace(/(\*{2,4}\d{2,4})\s+(\d{1,2})\b/g, '$1$2'))
         .map(l => l.replace(/\s+[)\]}>]+$/g, '').trim())
         .filter(l => {
           if (!l || l.length < 2) return false;
@@ -1308,11 +1300,9 @@ Aturan ketat:
         nominal: 0,
         admin: 0,
         total: 0,
-        tokenPln: '',
-        extraPairs: []
+        tokenPln: ''
       };
 
-      // Deteksi Token Listrik 20 digit
       const fullJoined = rawLines.join(' ');
       const tokenMatch = fullJoined.match(/(?:token|stroom)[^\d]{0,20}((?:\d[\s-]?){20})/i);
       if (tokenMatch) {
@@ -1327,7 +1317,6 @@ Aturan ketat:
         let line = rawLines[i];
         const nextLine = rawLines[i + 1] || '';
 
-        // Pisahkan jika menggunakan pemisah kolom spasial '  |  '
         if (line.includes('  |  ')) {
           const [leftPart, rightPart] = line.split('  |  ').map(s => s.trim());
           if (/tanggal|waktu/i.test(leftPart)) {
@@ -1356,7 +1345,6 @@ Aturan ketat:
           }
         }
 
-        // Tanggal & Jam
         const dateMatch = line.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s+\d{4})(?:\s+(\d{1,2}[:.]\d{2}))?/i);
         if (dateMatch) {
           data.date = dateMatch[1];
@@ -1372,7 +1360,6 @@ Aturan ketat:
           continue;
         }
 
-        // ID Transaksi / Referensi
         const idInline = line.match(/^(?:id\s*(?:transaksi|trx|referensi)|no\.?\s*ref(?:erensi)?)\s*:?\s*([A-Za-z0-9]{8,})/i);
         if (idInline) {
           data.trxId = idInline[1];
@@ -1384,7 +1371,6 @@ Aturan ketat:
           continue;
         }
 
-        // Metode Pembayaran (termasuk multi-baris seperti Saldo DANA + (SmartPay))
         const methodInline = line.match(/^metode(?:\s+pembayaran)?\s*:?\s*(.+)$/i);
         if (methodInline) {
           let mVal = methodInline[1].trim();
@@ -1401,7 +1387,6 @@ Aturan ketat:
           continue;
         }
 
-        // Blok GoPay / Bank: "Ditransfer ke"
         const ditransferInline = line.match(/^ditransfer\s+ke\s*:?\s*(.+)$/i);
         if (ditransferInline) {
           data.recipient = ditransferInline[1].trim();
@@ -1422,7 +1407,6 @@ Aturan ketat:
           continue;
         }
 
-        // Blok DANA: "Nama MUHAMAD THAUFAN..." & "Akun Bank Seabank Indonesia ****4874"
         const namaInline = line.match(/^(?:nama|penerima)\s*:?\s*(.+)$/i);
         if (namaInline && !/detail penerima/i.test(line)) {
           let rName = namaInline[1].trim();
@@ -1440,7 +1424,6 @@ Aturan ketat:
           continue;
         }
 
-        // Kirim Uang Rp300.000 ke NAMA - BANK
         const kirimMatch = line.match(/kirim\s+uang\s+rp\.?\s*([\d.]+)\s+ke\s+(.+)/i);
         if (kirimMatch) {
           if (!data.nominal) data.nominal = parseNominalNumber(kirimMatch[1]);
@@ -1450,7 +1433,6 @@ Aturan ketat:
           continue;
         }
 
-        // Nominal, Admin, Total
         const nomMatch = line.match(/^(?:nominal|jumlah\s*transfer)\s*:?\s*rp\.?\s*([\d.]+)/i);
         if (nomMatch) {
           data.nominal = parseNominalNumber(nomMatch[1]);
@@ -1469,7 +1451,6 @@ Aturan ketat:
           continue;
         }
 
-        // Tangkap nominal standalone pertama jika belum ditemukan
         if (!data.nominal && /^rp\.?\s*[\d.]{4,}$/i.test(line)) {
           data.nominal = parseNominalNumber(line);
         }
@@ -1522,7 +1503,6 @@ Aturan ketat:
       return out;
     }
 
-    // Menormalkan baris menjadi lebar kertas 58mm (32 / 30 karakter)
     function normalizeScannedLines(rawLines, maxWidth) {
       const width = parseInt(maxWidth, 10) || 32;
       const result = [];
@@ -1621,46 +1601,74 @@ Aturan ketat:
       if (summary) summary.textContent = `Admin: ${formatRupiah(adminFee)}`;
 
       const textarea = document.getElementById('scanExtractedText');
-      if (!textarea) return;
+      if (!textarea || !textarea.value.trim()) return;
 
       const width = parseInt(storeConfig.charWidth, 10) || 32;
       const lines = textarea.value.split('\n');
       let currentNominal = scanBaseNominal;
 
-      lines.forEach(l => {
-        const m = l.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim().match(/^Nominal\s+Rp\s*([\d.]+)/i);
-        if (m) currentNominal = parseNominalNumber(m[1]);
-      });
+      for (const line of lines) {
+        const clean = line.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim();
+        const nomMatch = clean.match(/^Nominal\s+Rp\s*([\d.]+)/i);
+        if (nomMatch) {
+          currentNominal = parseNominalNumber(nomMatch[1]);
+          scanBaseNominal = currentNominal;
+          break;
+        }
+      }
 
       const newTotal = currentNominal + adminFee;
-      const updated = lines.map(line => {
-        const raw = line.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim();
-        if (/^Admin\s+/i.test(raw)) {
-          return twoColumns('Admin', formatRupiah(adminFee), width)[0];
+      let updatedAdmin = false;
+      let updatedTotal = false;
+
+      const updatedLines = lines.map(line => {
+        const isBold = line.includes('[TEBAL]');
+        const clean = line.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim();
+
+        if (/^Admin\s+/i.test(clean)) {
+          updatedAdmin = true;
+          const formatted = twoColumns('Admin', formatRupiah(adminFee), width)[0];
+          return (isBold ? '[TEBAL]' : '') + formatted;
         }
-        if (/^TOTAL\s+/i.test(raw)) {
-          return '[TEBAL]' + twoColumns('TOTAL', formatRupiah(newTotal), width)[0];
+        if (/^TOTAL\s+/i.test(clean)) {
+          updatedTotal = true;
+          const formatted = twoColumns('TOTAL', formatRupiah(newTotal), width)[0];
+          return '[TEBAL]' + formatted;
         }
         return line;
       });
 
-      textarea.value = updated.join('\n');
+      if (!updatedAdmin && currentNominal > 0) {
+        updatedLines.push(twoColumns('Admin', formatRupiah(adminFee), width)[0]);
+      }
+      if (!updatedTotal && currentNominal > 0) {
+        updatedLines.push('='.repeat(width));
+        updatedLines.push('[TEBAL]' + twoColumns('TOTAL', formatRupiah(newTotal), width)[0]);
+        updatedLines.push('='.repeat(width));
+      }
+
+      textarea.value = updatedLines.join('\n');
       receiptMode = 'custom';
       renderPreview();
     }
 
     function setQuickAdminFee(amount) {
       const input = document.getElementById('inputScanAdminFee');
-      if (input) input.value = amount;
+      if (input) {
+        input.value = amount;
+      }
       updateScanAdminFee(amount);
     }
 
     function reformatScanTextarea() {
       const textarea = document.getElementById('scanExtractedText');
-      if (!textarea) return;
+      if (!textarea || !textarea.value.trim()) {
+        showToast('Belum ada teks hasil foto untuk dirapikan.', 'warning');
+        return;
+      }
       const width = parseInt(storeConfig.charWidth, 10) || 32;
-      const lines = textarea.value.split('\n');
-      textarea.value = normalizeScannedLines(lines, width).join('\n');
+      const rawLines = textarea.value.split('\n');
+      textarea.value = normalizeScannedLines(rawLines, width).join('\n');
       receiptMode = 'custom';
       renderPreview(true);
       showToast('Format baris 58mm dirapikan!', 'success');
@@ -1677,98 +1685,114 @@ Aturan ketat:
     }
 
     // =========================================================================
-    // PEMBANGUN BARIS STRUK & LIVE PREVIEW
+    // PEMBANGUN BARIS STRUK & PRATINJAU KERTAS 58MM
     // =========================================================================
+    function buildStoreHeaderLines(width) {
+      const lines = [];
+      const storeName = (storeConfig.storeName || DEFAULT_CONFIG.storeName).trim();
+      if (storeName) {
+        centerText(storeName.toUpperCase(), width).forEach(l => lines.push('[TEBAL]' + l));
+      }
+      if (storeConfig.storeAddress && storeConfig.storeAddress.trim()) {
+        centerText(storeConfig.storeAddress.trim(), width).forEach(l => lines.push(l));
+      }
+      if (storeConfig.storePhone && storeConfig.storePhone.trim()) {
+        centerText(storeConfig.storePhone.trim(), width).forEach(l => lines.push(l));
+      }
+      if (lines.length > 0) {
+        lines.push('='.repeat(width));
+      }
+      return lines;
+    }
+
+    function buildStoreFooterLines(width) {
+      const lines = [];
+      if (storeConfig.storeFooter && storeConfig.storeFooter.trim()) {
+        lines.push('-'.repeat(width));
+        centerText(storeConfig.storeFooter.trim(), width).forEach(l => lines.push(l));
+      }
+      return lines;
+    }
+
     function buildReceiptLines() {
       const width = parseInt(storeConfig.charWidth, 10) || 32;
-      const lines = [];
-
-      const includeHeaderFooter = receiptMode === 'kasir'
-        ? true
-        : (document.getElementById('chkIncludeHeaderFooterScan')?.checked ?? true);
-
-      if (includeHeaderFooter) {
-        const storeTitle = (storeConfig.storeName || DEFAULT_CONFIG.storeName).toUpperCase();
-        centerText(storeTitle, width).forEach(l => lines.push('[TEBAL]' + l));
-
-        if (storeConfig.storeAddress) {
-          centerText(storeConfig.storeAddress, width).forEach(l => lines.push(l));
-        }
-        if (storeConfig.storePhone) {
-          centerText(storeConfig.storePhone, width).forEach(l => lines.push(l));
-        }
-        lines.push('='.repeat(width));
-      }
 
       if (receiptMode === 'custom') {
-        const customText = document.getElementById('scanExtractedText')?.value || '';
-        const customLines = customText.split('\n');
-        customLines.forEach(l => {
-          if (l.trim() !== '') {
-            lines.push(l);
+        const includeHeaderFooter = document.getElementById('chkIncludeHeaderFooterScan')?.checked ?? true;
+        const customRaw = (document.getElementById('scanExtractedText')?.value || '').trim();
+        const bodyLines = customRaw ? normalizeScannedLines(customRaw.split('\n'), width) : ['(Belum ada teks hasil scan)'];
+
+        const finalLines = [];
+        if (includeHeaderFooter) {
+          finalLines.push(...buildStoreHeaderLines(width));
+        }
+        finalLines.push(...bodyLines);
+        if (includeHeaderFooter) {
+          const lastBody = finalLines[finalLines.length - 1] || '';
+          if (lastBody === '='.repeat(width) && storeConfig.storeFooter && storeConfig.storeFooter.trim()) {
+            centerText(storeConfig.storeFooter.trim(), width).forEach(l => finalLines.push(l));
+          } else {
+            finalLines.push(...buildStoreFooterLines(width));
           }
-        });
-      } else {
-        const now = new Date();
-        const tglStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const noNota = (document.getElementById('inputNoNota')?.value || 'TRX-001').trim();
-        const pelanggan = (document.getElementById('inputPelanggan')?.value || 'Umum').trim();
-
-        lines.push(...twoColumns('No. Nota', noNota, width));
-        lines.push(...twoColumns('Tanggal', tglStr, width));
-        lines.push(...twoColumns('Pelanggan', pelanggan, width));
-        lines.push('-'.repeat(width));
-
-        let subtotal = 0;
-        receiptItems.forEach(item => {
-          const itemName = (item.name || 'Produk').trim();
-          const qty = Math.max(1, parseInt(item.qty, 10) || 1);
-          const price = Math.max(0, parseInt(item.price, 10) || 0);
-          const lineTotal = qty * price;
-          subtotal += lineTotal;
-
-          wrapText(itemName, width).forEach(w => lines.push(w));
-          lines.push(...twoColumns(`${qty} x ${formatRupiah(price)}`, formatRupiah(lineTotal), width));
-        });
-
-        const diskon = Math.max(0, parseInt(document.getElementById('inputDiskon')?.value, 10) || 0);
-        const total = Math.max(0, subtotal - diskon);
-        const bayar = Math.max(0, parseInt(document.getElementById('inputBayar')?.value, 10) || 0);
-        const kembali = Math.max(0, bayar - total);
-
-        lines.push('-'.repeat(width));
-        lines.push(...twoColumns('Subtotal', formatRupiah(subtotal), width));
-        if (diskon > 0) {
-          lines.push(...twoColumns('Diskon', `-${formatRupiah(diskon)}`, width));
         }
-        lines.push('='.repeat(width));
-        twoColumns('TOTAL', formatRupiah(total), width).forEach(l => lines.push('[TEBAL]' + l));
-        lines.push('='.repeat(width));
-        lines.push(...twoColumns('Tunai', formatRupiah(bayar), width));
-        lines.push(...twoColumns('Kembali', formatRupiah(kembali), width));
+        return finalLines;
       }
 
-      if (includeHeaderFooter && storeConfig.storeFooter) {
-        const lastLine = lines[lines.length - 1] || '';
-        if (lastLine !== '='.repeat(width) && lastLine !== '-'.repeat(width)) {
-          lines.push('-'.repeat(width));
-        }
-        centerText(storeConfig.storeFooter, width).forEach(l => lines.push(l));
-      }
+      // MODE KASIR
+      const lines = [...buildStoreHeaderLines(width)];
+      const now = new Date();
+      const tgl = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const noNota = (document.getElementById('inputNoNota')?.value || 'TRX-001').trim();
+      const pelanggan = (document.getElementById('inputPelanggan')?.value || 'Umum').trim();
 
+      lines.push(...twoColumns('No. Nota', noNota, width));
+      lines.push(...twoColumns('Tanggal', tgl, width));
+      lines.push(...twoColumns('Pelanggan', pelanggan, width));
+      lines.push('-'.repeat(width));
+
+      let subtotal = 0;
+      receiptItems.forEach(item => {
+        const name = (item.name || 'Item').trim();
+        const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+        const price = Math.max(0, parseInt(item.price, 10) || 0);
+        const totalItem = qty * price;
+        subtotal += totalItem;
+
+        wrapText(name, width).forEach(w => lines.push(w));
+        const qtyCalc = `${qty} x ${price.toLocaleString('id-ID')}`;
+        lines.push(...twoColumns(qtyCalc, totalItem.toLocaleString('id-ID'), width));
+      });
+
+      const diskon = Math.max(0, parseInt(document.getElementById('inputDiskon')?.value, 10) || 0);
+      const grandTotal = Math.max(0, subtotal - diskon);
+      const bayar = Math.max(0, parseInt(document.getElementById('inputBayar')?.value, 10) || 0);
+      const kembali = Math.max(0, bayar - grandTotal);
+
+      lines.push('-'.repeat(width));
+      lines.push(...twoColumns('Subtotal', formatRupiah(subtotal), width));
+      if (diskon > 0) {
+        lines.push(...twoColumns('Diskon', '-' + formatRupiah(diskon), width));
+      }
+      lines.push('='.repeat(width));
+      lines.push('[TEBAL]' + twoColumns('TOTAL', formatRupiah(grandTotal), width)[0]);
+      lines.push('='.repeat(width));
+      lines.push(...twoColumns('Tunai', formatRupiah(bayar), width));
+      lines.push(...twoColumns('Kembali', formatRupiah(kembali), width));
+
+      lines.push(...buildStoreFooterLines(width));
       return lines;
     }
 
     function getPlainReceiptText() {
       return buildReceiptLines()
-        .map(line => line.replace(/\[TEBAL\]/g, '').replace(/\[TENGAH\]/g, ''))
+        .map(line => line.replace(/\[TEBAL\]|\[TENGAH\]/g, ''))
         .join('\n');
     }
 
-    function renderPreview(flashEffect = false) {
+    function renderPreview(flash = false) {
       const previewEl = document.getElementById('receiptPreviewArea');
       const badgeEl = document.getElementById('previewModeBadge');
-      const paperCard = document.getElementById('receiptPaperCard');
+      const cardEl = document.getElementById('receiptPaperCard');
       if (!previewEl) return;
 
       const width = parseInt(storeConfig.charWidth, 10) || 32;
@@ -1776,36 +1800,42 @@ Aturan ketat:
 
       if (badgeEl) {
         badgeEl.textContent = receiptMode === 'custom'
-          ? `Pratinjau Kertas 58mm (Mode Scan Foto - ${width} Kolom)`
-          : `Pratinjau Kertas 58mm (Mode Kasir - ${width} Kolom)`;
+          ? 'PRATINJAU KERTAS 58MM (MODE SCAN FOTO)'
+          : 'PRATINJAU KERTAS 58MM (MODE KASIR)';
       }
 
       const lines = buildReceiptLines();
-      previewEl.innerHTML = lines.map(rawLine => {
-        const isBold = rawLine.startsWith('[TEBAL]');
-        const clean = rawLine.replace(/\[TEBAL\]/g, '').replace(/\[TENGAH\]/g, '');
+      const htmlLines = lines.map(raw => {
+        const isBold = raw.startsWith('[TEBAL]');
+        const clean = raw.replace(/\[TEBAL\]|\[TENGAH\]/g, '');
         const escaped = clean
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
         return isBold ? `<strong class="font-bold text-slate-950">${escaped}</strong>` : escaped;
-      }).join('\n');
+      });
 
-      if (flashEffect && paperCard) {
-        paperCard.classList.add('highlight-flash');
-        setTimeout(() => paperCard.classList.remove('highlight-flash'), 700);
+      previewEl.innerHTML = htmlLines.join('\n');
+
+      if (flash && cardEl) {
+        cardEl.classList.remove('highlight-flash');
+        void cardEl.offsetWidth;
+        cardEl.classList.add('highlight-flash');
+        setTimeout(() => cardEl.classList.remove('highlight-flash'), 1200);
       }
     }
 
     // =========================================================================
-    // RIWAYAT TRANSAKSI & DASHBOARD REKAP PENJUALAN
+    // RIWAYAT TRANSAKSI & DASHBOARD REKAP
     // =========================================================================
     function loadTransactionHistory() {
       const saved = safeStorageGet(STORAGE_KEY_HISTORY);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) transactionHistory = parsed;
+          if (Array.isArray(parsed)) {
+            transactionHistory = parsed;
+          }
         } catch (_) {
           transactionHistory = [];
         }
@@ -1840,7 +1870,6 @@ Aturan ketat:
         ? 'Scan Struk Transaksi'
         : `Nota ${(document.getElementById('inputNoNota')?.value || 'TRX').trim()}`;
 
-      // Cegah duplikasi identik dalam 5 detik terakhir
       const now = Date.now();
       const latest = transactionHistory[0];
       if (latest && latest.text === plainText && (now - latest.timestamp) < 5000) {
@@ -1890,7 +1919,7 @@ Aturan ketat:
                   ${trx.mode === 'custom' ? 'Scan' : 'Kasir'}
                 </span>
               </div>
-              <p class="text-xs text-slate-500 mt-0.5">${dateStr} • <strong class="text-slate-800">${formatRupiah(trx.total)}</strong></p>
+              <p class="text-xs text-slate-500 mt-0.5">${dateStr} &bull; <strong class="text-slate-800">${formatRupiah(trx.total)}</strong></p>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <button type="button" onclick="loadHistoryItem(${trx.id})" class="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition cursor-pointer">
@@ -1976,7 +2005,7 @@ Aturan ketat:
     }
 
     // =========================================================================
-    // KONEKSI & CETAK BLUETOOTH THERMAL 58MM (ESC/POS)
+    // KONEKSI & CETAK BLUETOOTH THERMAL 58MM (BLE & RAWBT CLASSIC)
     // =========================================================================
     function updateBluetoothUI(connected, deviceName = '') {
       const badge = document.getElementById('btStatusBadge');
@@ -2001,7 +2030,6 @@ Aturan ketat:
         text.textContent = 'Mode RawBT Aktif';
         btn.className = 'px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2 cursor-pointer';
         btnLabel.textContent = 'Hubungkan BLE';
-        if (helpBox) helpBox.classList.add('hidden');
       } else {
         badge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200';
         dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
@@ -2011,10 +2039,13 @@ Aturan ketat:
       }
     }
 
-    function enableRawBtFallbackMode() {
+    function enableRawBtFallbackMode(silent = false) {
       useRawBtMode = true;
+      safeStorageSet(STORAGE_KEY_RAWBT, '1');
       updateBluetoothUI(false);
-      showToast('Mode RawBT diaktifkan! Tekan Cetak Struk untuk mencetak ke printer Bluetooth Classic.', 'success');
+      if (!silent) {
+        showToast('Mode Cetak RawBT aktif! Siap langsung mencetak ke printer Bluetooth.', 'success');
+      }
     }
 
     function showBluetoothHelp(reasonText) {
@@ -2040,35 +2071,44 @@ Aturan ketat:
       if (!navigator.bluetooth) {
         const isInFrame = window.self !== window.top;
         const msg = isInFrame
-          ? 'Halaman berjalan di dalam frame (Google Sites) yang membatasi akses Bluetooth.'
-          : 'Browser/mode file ini tidak mendukung Web Bluetooth langsung.';
+          ? 'Halaman berjalan di dalam frame (Google Sites) yang membatasi akses Bluetooth langsung. Mode RawBT otomatis diaktifkan.'
+          : 'Browser ini memakai jembatan RawBT untuk mencetak ke printer Bluetooth 58mm.';
+        enableRawBtFallbackMode(true);
         showBluetoothHelp(msg);
-        showToast('Web Bluetooth tidak tersedia di mode ini. Gunakan Mode RawBT.', 'error');
+        showToast('Mode RawBT otomatis aktif — ketuk Langsung Cetak Struk.', 'info');
         return;
       }
 
       try {
         showToast('Mencari printer Bluetooth 58mm... Pastikan GPS & Printer aktif.', 'info');
 
-        // Daftar lengkap UUID GATT semua merek & chip printer thermal 58mm (BLE)
         const commonServices = [
           '000018f0-0000-1000-8000-00805f9b34fb',
           'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
           '49535343-fe7d-4ae5-8fa9-9fafd205e455',
           '0000ff00-0000-1000-8000-00805f9b34fb',
           '0000ff10-0000-1000-8000-00805f9b34fb',
+          '0000ff80-0000-1000-8000-00805f9b34fb',
           '0000ffe0-0000-1000-8000-00805f9b34fb',
           '0000ffe5-0000-1000-8000-00805f9b34fb',
           '0000fff0-0000-1000-8000-00805f9b34fb',
           '0000fee7-0000-1000-8000-00805f9b34fb',
           '0000fee8-0000-1000-8000-00805f9b34fb',
           '0000fee9-0000-1000-8000-00805f9b34fb',
+          '0000fe00-0000-1000-8000-00805f9b34fb',
           '0000ae00-0000-1000-8000-00805f9b34fb',
           '0000ae30-0000-1000-8000-00805f9b34fb',
           '0000ae3a-0000-1000-8000-00805f9b34fb',
           '0000abf0-0000-1000-8000-00805f9b34fb',
+          '0000ffa0-0000-1000-8000-00805f9b34fb',
+          '0000ffb0-0000-1000-8000-00805f9b34fb',
+          '0000ffc0-0000-1000-8000-00805f9b34fb',
+          '0000ffd0-0000-1000-8000-00805f9b34fb',
           '0000fd00-0000-1000-8000-00805f9b34fb',
           '0000fc00-0000-1000-8000-00805f9b34fb',
+          '0003cdd0-0000-1000-8000-00805f9b0131',
+          '00010203-0405-0607-0809-0a0b0c0d1910',
+          '8653000a-43e6-47b7-9cb0-5fc21d4ae340',
           '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
           '00001101-0000-1000-8000-00805f9b34fb',
           'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f'
@@ -2079,18 +2119,12 @@ Aturan ketat:
           optionalServices: commonServices
         });
 
-        device.addEventListener('gattserverdisconnected', () => {
-          printCharacteristic = null;
-          updateBluetoothUI(false);
-          showToast('Printer Bluetooth terputus.', 'warning');
-        });
-
         let server = null;
         for (let attempt = 1; attempt <= 2; attempt++) {
           try {
             server = await device.gatt.connect();
             if (server && server.connected) {
-              await new Promise(r => setTimeout(r, 300));
+              await new Promise(r => setTimeout(r, 350));
               break;
             }
           } catch (connErr) {
@@ -2118,8 +2152,12 @@ Aturan ketat:
           '49535343-8841',
           'bef8d6c9',
           '0000ff02',
+          '0000ff82',
           '0000ffe1',
           '0000ffe9',
+          '0000fec7',
+          '0000fea1',
+          '0003cdd2',
           '6e400002',
           '0000fff2',
           '0000ae01',
@@ -2157,24 +2195,34 @@ Aturan ketat:
         const foundChar = preferredChar || fallbackWritableChar;
         if (!foundChar) {
           try { server.disconnect(); } catch (_) {}
-          throw new Error('Printer "' + (device.name || 'Bluetooth') + '" memakai protokol Bluetooth Classic (SPP) yang membutuhkan aplikasi RawBT untuk mencetak dari Chrome.');
+          throw new Error('Printer "' + (device.name || 'Bluetooth') + '" memakai Bluetooth Classic (SPP). Mode RawBT sudah otomatis diaktifkan agar bisa langsung mencetak.');
         }
+
+        device.addEventListener('gattserverdisconnected', () => {
+          if (printCharacteristic) {
+            printCharacteristic = null;
+            updateBluetoothUI(false);
+            showToast('Printer Bluetooth terputus.', 'warning');
+          }
+        });
 
         bluetoothDevice = device;
         printCharacteristic = foundChar;
         useRawBtMode = false;
+        safeStorageSet(STORAGE_KEY_RAWBT, '0');
         updateBluetoothUI(true, device.name || 'Printer 58mm');
         showToast(`Terhubung ke ${device.name || 'Printer Bluetooth'}!`, 'success');
       } catch (err) {
         if (err.name !== 'NotFoundError') {
           let detail = err.message || 'Gagal menyambung ke perangkat.';
           if (err.name === 'SecurityError' || /disallowed|policy/i.test(detail)) {
-            detail = 'Akses Bluetooth diblokir oleh frame. Buka langsung di Chrome utama atau gunakan Mode RawBT.';
+            detail = 'Akses Bluetooth dibatasi frame. Mode RawBT otomatis diaktifkan untuk mencetak.';
           } else if (/GATT|NetworkError|disconnected/i.test(detail)) {
-            detail = 'Koneksi GATT terputus atau printer ini memakai Bluetooth Classic (SPP). Silakan aktifkan Mode RawBT di bawah.';
+            detail = 'Printer Anda memakai protokol Bluetooth Classic (SPP). Mode RawBT sudah otomatis diaktifkan untuk langsung mencetak.';
           }
+          enableRawBtFallbackMode(true);
           showBluetoothHelp(detail);
-          showToast('Printer Bluetooth Classic terdeteksi — silakan gunakan Mode RawBT.', 'warning');
+          showToast('Mode RawBT otomatis aktif — siap mencetak ke printer Bluetooth Anda!', 'success');
         }
       }
     }
@@ -2197,12 +2245,9 @@ Aturan ketat:
       const feedLines = parseInt(storeConfig.feedLines, 10) || 3;
       const buffer = [];
 
-      // ESC @ (Reset printer)
-      buffer.push(0x1B, 0x40);
-      // ESC M 0 (Font A standar 32 kolom untuk kertas 58mm)
-      buffer.push(0x1B, 0x4D, 0x00);
-      // ESC a 0 (Rata kiri default)
-      buffer.push(0x1B, 0x61, 0x00);
+      buffer.push(0x1B, 0x40);       // ESC @ (Reset printer)
+      buffer.push(0x1B, 0x4D, 0x00); // ESC M 0 (Font A standar 32 kolom untuk kertas 58mm)
+      buffer.push(0x1B, 0x61, 0x00); // ESC a 0 (Rata kiri default)
 
       lines.forEach(rawLine => {
         let line = rawLine;
@@ -2270,7 +2315,13 @@ Aturan ketat:
         }
         const base64EscPos = btoa(binary);
         window.location.href = `rawbt:base64,${base64EscPos}`;
-        showToast('Mengirim struk ESC/POS ke aplikasi RawBT...', 'info');
+        showToast('Mengirim struk ke printer via RawBT...', 'success');
+
+        setTimeout(() => {
+          if (!document.hidden) {
+            showBluetoothHelp('Pastikan aplikasi gratis RawBT Print Service sudah terpasang di HP Android dan printer Gprinter Anda sudah dipilih di dalam RawBT.');
+          }
+        }, 1800);
       } catch (err) {
         showToast('Gagal membuka RawBT: ' + err.message, 'error');
       }
@@ -2435,6 +2486,10 @@ Aturan ketat:
 
         loadStoreConfig();
         loadTransactionHistory();
+        if (safeStorageGet(STORAGE_KEY_RAWBT) === '1') {
+          useRawBtMode = true;
+          updateBluetoothUI(false);
+        }
         renderItemInputs();
         setupImagePasteAndDrop();
         updateDashboardStats();
