@@ -1,0 +1,2803 @@
+```html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cetak Struk Bluetooth 58mm - Kasir & Scan Foto Otomatis</title>
+
+  <!-- Tailwind CSS untuk tampilan modern & responsif -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Inter untuk UI & JetBrains Mono untuk simulasi kertas struk 58mm -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- Tesseract.js untuk OCR otomatis langsung di browser (cadangan saat file dibuka offline/tanpa API key) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f1f5f9;
+    }
+
+    /* Font khusus struk thermal agar lebar setiap karakter presisi (monospace) */
+    .font-receipt {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-variant-ligatures: none;
+    }
+
+    /* Efek gerigi kertas struk thermal di bagian atas dan bawah */
+    .receipt-paper {
+      position: relative;
+      background: #ffffff;
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
+      transition: box-shadow 0.3s ease, transform 0.2s ease;
+    }
+
+    .receipt-paper.highlight-flash {
+      box-shadow: 0 0 0 3px #10b981, 0 12px 28px -5px rgba(16, 185, 129, 0.25);
+    }
+
+    .receipt-paper::before,
+    .receipt-paper::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 8px;
+      background-size: 16px 8px;
+    }
+
+    .receipt-paper::before {
+      top: -8px;
+      background-image: radial-gradient(circle at 8px 0, transparent 6px, #ffffff 6.5px);
+    }
+
+    .receipt-paper::after {
+      bottom: -8px;
+      background-image: radial-gradient(circle at 8px 8px, transparent 6px, #ffffff 6.5px);
+    }
+
+    /* Animasi halus untuk notifikasi toast */
+    @keyframes slideUp {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .toast-enter {
+      animation: slideUp 0.25s ease-out forwards;
+    }
+
+    /* Ruang aman untuk Bottom Navigation Bar di HP */
+    .pb-bottom-nav {
+      padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .bottom-nav-safe {
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    /* Mode cetak langsung via dialog Print Browser / Driver 58mm */
+    @media print {
+      @page {
+        size: 58mm auto;
+        margin: 0;
+      }
+      body * {
+        visibility: hidden !important;
+      }
+      #receiptPaperCard,
+      #receiptPaperCard * {
+        visibility: visible !important;
+      }
+      #receiptPaperCard {
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 58mm !important;
+        max-width: 58mm !important;
+        padding: 2mm !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        background: #ffffff !important;
+      }
+      #receiptPaperCard::before,
+      #receiptPaperCard::after {
+        display: none !important;
+      }
+      #receiptPreviewArea {
+        font-size: 10px !important;
+        line-height: 1.3 !important;
+        overflow: visible !important;
+      }
+    }
+  </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col">
+
+  <!-- HEADER / NAVBAR -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+        </div>
+        <div>
+          <h1 class="font-bold text-slate-900 text-base sm:text-lg leading-tight">CetakStruk 58mm</h1>
+          <p class="text-xs text-slate-500">Bluetooth Thermal POS & Auto-Format Struk</p>
+        </div>
+      </div>
+
+      <!-- Status & Tombol Koneksi Bluetooth -->
+      <div class="flex items-center gap-2.5">
+        <div id="btStatusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+          <span id="btStatusDot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+          <span id="btStatusText">Belum Terhubung</span>
+        </div>
+
+        <button type="button" id="btnConnectBt" onclick="toggleBluetoothConnection()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2 cursor-pointer">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"></polyline>
+          </svg>
+          <span id="btnConnectLabel">Hubungkan Printer</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- BANNER INFO -->
+  <div class="max-w-6xl mx-auto w-full px-4 pt-4">
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start justify-between gap-3">
+      <div class="flex items-start gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <p>
+          <strong>Tips Cepat:</strong> Pilih gambar screenshot di tab <strong>2. Scan Foto</strong> atau langsung tekan <code class="bg-amber-100 px-1 rounded">Ctrl+V</code> di mana saja untuk memindai bukti transaksi dan otomatis menatanya ke kertas struk 58mm.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- KONTEN UTAMA -->
+  <main class="max-w-6xl mx-auto w-full px-4 py-5 pb-bottom-nav flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+    <!-- KOLOM KIRI: KONTEN HALAMAN / TAB (7 Kolom) -->
+    <div id="leftEditorColumn" class="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+      <!-- TAB 0: DASHBOARD (Seperti Tampilan Menu Utama Mobile) -->
+      <div id="panel-dashboard" class="p-4 sm:p-6 space-y-5 bg-slate-50/50">
+        <!-- Header Profil Toko / Konter -->
+        <div class="flex items-center gap-3.5 pt-1">
+          <div class="w-14 h-14 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-3xl shadow-2xs shrink-0">
+            💰
+          </div>
+          <div class="min-w-0 flex-1">
+            <h2 id="dashStoreName" class="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight truncate">WARUNG KOPI NUSANTARA</h2>
+            <p id="dashStoreSubtitle" class="text-xs sm:text-sm text-slate-500 font-medium truncate">Konter &amp; Kasir Bluetooth 58mm</p>
+          </div>
+        </div>
+
+        <!-- 2 Kartu Ringkasan Atas -->
+        <div class="grid grid-cols-2 gap-3.5">
+          <div onclick="switchTab('kasir')" class="bg-white rounded-2xl border border-slate-200/90 p-4 text-center shadow-2xs hover:border-sky-300 transition cursor-pointer">
+            <div class="text-3xl mb-1.5">📦</div>
+            <div id="dashItemCount" class="text-2xl font-extrabold text-slate-900">2</div>
+            <div class="text-xs font-medium text-slate-500 mt-0.5">Item Kasir</div>
+          </div>
+
+          <div onclick="switchTab('riwayat')" class="bg-white rounded-2xl border border-slate-200/90 p-4 text-center shadow-2xs hover:border-sky-300 transition cursor-pointer">
+            <div class="text-3xl mb-1.5">💵</div>
+            <div id="dashTodayTrxCount" class="text-2xl font-extrabold text-slate-900">0</div>
+            <div class="text-xs font-medium text-slate-500 mt-0.5">Transaksi Hari Ini</div>
+          </div>
+        </div>
+
+        <!-- Kartu Rekap Penjualan -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm sm:text-base font-bold text-slate-900">Rekap Penjualan</h3>
+            <span class="text-[11px] font-semibold text-sky-700 bg-sky-50 px-2.5 py-0.5 rounded-full">Otomatis</span>
+          </div>
+
+          <div class="divide-y divide-slate-100 text-sm">
+            <div class="py-2.5 flex items-center justify-between">
+              <span class="text-slate-600 font-medium">Hari Ini</span>
+              <span id="dashSalesToday" class="font-bold text-slate-900">Rp 0</span>
+            </div>
+            <div class="py-2.5 flex items-center justify-between">
+              <span class="text-slate-600 font-medium">7 Hari</span>
+              <span id="dashSales7Days" class="font-bold text-slate-900">Rp 0</span>
+            </div>
+            <div class="pt-2.5 flex items-center justify-between">
+              <span class="text-slate-600 font-medium">Bulan Ini</span>
+              <span id="dashSalesMonth" class="font-bold text-slate-900">Rp 0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tombol Aksi Utama -->
+        <div class="space-y-2.5 pt-1">
+          <button type="button" onclick="switchTab('kasir')" class="w-full py-3.5 px-5 rounded-2xl bg-[#0284c7] hover:bg-[#0369a1] active:bg-[#075985] text-white font-bold text-base shadow-md shadow-sky-600/20 transition cursor-pointer">
+            Mulai Menjual
+          </button>
+
+          <button type="button" onclick="switchTab('scan')" class="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-semibold text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            <span>Scan / Tempel Screenshot Transaksi</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 1: KASIR -->
+      <div id="panel-kasir" class="p-4 sm:p-5 space-y-5 hidden">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Kasir &amp; Input Nota</h2>
+            <p class="text-xs text-slate-500">Isi daftar belanja untuk dicetak ke kertas 58mm</p>
+          </div>
+          <button type="button" onclick="saveCurrentReceiptToHistory(true)" class="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition cursor-pointer">
+            + Simpan Rekap
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="inputNoNota" class="block text-xs font-semibold text-slate-600 mb-1">No. Nota / Transaksi</label>
+            <input type="text" id="inputNoNota" oninput="setKasirModeAndRender()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label for="inputPelanggan" class="block text-xs font-semibold text-slate-600 mb-1">Nama Pelanggan / Kasir</label>
+            <input type="text" id="inputPelanggan" placeholder="Umum / Kasir 1" oninput="setKasirModeAndRender()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold text-slate-700 uppercase tracking-wider">Daftar Item / Produk</label>
+            <button type="button" onclick="addItemRow()" class="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition cursor-pointer">
+              + Tambah Baris
+            </button>
+          </div>
+          <div id="itemsContainer" class="space-y-2.5"></div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="inputDiskon" class="block text-xs font-semibold text-slate-600 mb-1">Diskon / Potongan (Rp)</label>
+            <input type="number" id="inputDiskon" value="0" min="0" oninput="setKasirModeAndRender()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label for="inputBayar" class="block text-xs font-semibold text-slate-600 mb-1">Tunai / Dibayar (Rp)</label>
+            <input type="number" id="inputBayar" value="50000" min="0" oninput="setKasirModeAndRender()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: SCAN FOTO / SCREENSHOT (AI OCR) -->
+      <div id="panel-scan" class="p-4 sm:p-5 space-y-4 hidden">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-bold text-slate-800">Upload / Tempel Screenshot Transaksi</h2>
+            <p class="text-xs text-slate-500">Otomatis terbaca dan langsung tertata di struk 58mm.</p>
+          </div>
+          <span class="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-semibold">
+            Auto-Format 58mm
+          </span>
+        </div>
+
+        <!-- Dropzone -->
+        <div id="dropZoneScan" onclick="document.getElementById('inputScreenshotFile').click()"
+          class="border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50 hover:bg-blue-50/40 rounded-2xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2">
+          <input type="file" id="inputScreenshotFile" accept="image/*" class="hidden" onchange="handleImageFileSelect(event)" />
+
+          <div class="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold text-slate-800">Klik Pilih Foto / Tempel (<code class="bg-slate-200/70 px-1 rounded text-xs">Ctrl+V</code>)</p>
+            <p class="text-xs text-slate-500 mt-0.5">Bukti transfer bank, QRIS, DANA, OVO, GoPay, Token PLN, atau nota</p>
+          </div>
+        </div>
+
+        <!-- Preview Gambar + Hasil Teks Terdeteksi -->
+        <div id="scanPreviewContainer" class="hidden space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span id="scanStatusLabel" class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>Gambar Berhasil Dimuat</span>
+            </span>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" onclick="document.getElementById('inputScreenshotFile').click()" class="text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg transition cursor-pointer">
+                Ganti Foto
+              </button>
+              <button type="button" onclick="reprocessCurrentImage(true)" title="Pindai langsung menggunakan OCR bawaan browser" class="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-lg transition cursor-pointer">
+                OCR Lokal
+              </button>
+              <button type="button" onclick="reprocessCurrentImage(false)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg transition cursor-pointer">
+                Baca Ulang
+              </button>
+            </div>
+          </div>
+
+          <!-- Thumbnail Gambar -->
+          <div class="relative flex justify-center bg-slate-900/5 rounded-xl overflow-hidden max-h-48 border border-slate-200/70">
+            <img id="scanImagePreview" alt="Preview Screenshot" class="max-h-48 w-auto object-contain" />
+
+            <div id="scanLoadingOverlay" class="hidden absolute inset-0 bg-slate-900/80 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4 text-center">
+              <div class="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mb-2"></div>
+              <p id="scanLoadingTitle" class="text-xs sm:text-sm font-semibold">Membaca & menata struk otomatis...</p>
+              <p id="scanLoadingSubtext" class="text-[11px] text-slate-300 mt-0.5">Hasil akan langsung muncul di cetak struk</p>
+            </div>
+          </div>
+
+          <!-- Edit Biaya Admin & Hitung Total Otomatis -->
+          <div class="bg-white p-3 rounded-xl border border-blue-200/80 shadow-2xs space-y-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-1">
+              <label for="inputScanAdminFee" class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-blue-600"></span>
+                <span>Edit Biaya Admin (Otomatis Update Total)</span>
+              </label>
+              <span id="scanAmountSummary" class="text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
+                Admin: Rp 0
+              </span>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div class="relative flex-1">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">Rp</span>
+                <input type="number" id="inputScanAdminFee" value="0" min="0" step="500"
+                  oninput="updateScanAdminFee(this.value)"
+                  placeholder="0"
+                  class="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+
+              <!-- Tombol Cepat Nominal Admin -->
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="setQuickAdminFee(0)" class="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-[11px] font-semibold text-slate-700 transition cursor-pointer">0</button>
+                <button type="button" onclick="setQuickAdminFee(2000)" class="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-[11px] font-semibold text-slate-700 transition cursor-pointer">2.000</button>
+                <button type="button" onclick="setQuickAdminFee(2500)" class="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-[11px] font-semibold text-slate-700 transition cursor-pointer">2.500</button>
+                <button type="button" onclick="setQuickAdminFee(3000)" class="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-[11px] font-semibold text-slate-700 transition cursor-pointer">3.000</button>
+                <button type="button" onclick="setQuickAdminFee(5000)" class="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-[11px] font-semibold text-slate-700 transition cursor-pointer">5.000</button>
+                <button type="button" onclick="setQuickAdminFee(10000)" class="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-[11px] font-semibold text-slate-700 transition cursor-pointer">10.000</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hasil Teks Foto (Langsung Tampil & Bisa Diedit) -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label for="scanExtractedText" class="text-xs font-bold text-slate-700">
+                Hasil Teks Foto (Otomatis Tertata 58mm):
+              </label>
+              <div class="flex items-center gap-2.5">
+                <button type="button" onclick="reformatScanTextarea()" class="text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md transition cursor-pointer">
+                  Rapikan Format
+                </button>
+                <label class="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="chkIncludeHeaderFooterScan" checked onchange="syncHeaderCheckbox(this.checked)" class="rounded text-blue-600" />
+                  <span>Header/Footer Toko</span>
+                </label>
+              </div>
+            </div>
+            <textarea id="scanExtractedText" rows="9" oninput="syncCustomTextFromScan(this.value)"
+              placeholder="Teks hasil pembacaan foto akan langsung muncul di sini dan di pratinjau kertas struk..."
+              class="w-full p-3 rounded-xl border border-slate-300 font-receipt text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: RIWAYAT TRANSAKSI -->
+      <div id="panel-riwayat" class="p-4 sm:p-5 space-y-4 hidden">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Riwayat Transaksi</h2>
+            <p class="text-xs text-slate-500">Otomatis tersimpan saat struk dicetak atau disimpan</p>
+          </div>
+          <button type="button" onclick="clearTransactionHistory()" class="text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition cursor-pointer">
+            Hapus Semua
+          </button>
+        </div>
+
+        <div id="historyListContainer" class="space-y-2.5">
+          <!-- Daftar riwayat dirender via JavaScript -->
+        </div>
+      </div>
+
+      <!-- TAB 4: PENGATURAN / INFO TOKO -->
+      <div id="panel-toko" class="p-4 sm:p-5 space-y-4 hidden">
+        <div class="border-b border-slate-100 pb-3">
+          <h2 class="text-base font-bold text-slate-900">Pengaturan Toko &amp; Printer</h2>
+          <p class="text-xs text-slate-500">Atur identitas struk, lebar kertas 58mm, dan koneksi printer</p>
+        </div>
+
+        <div class="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+          Ubah identitas toko di bawah ini. Untuk mengubah nilai permanen bawaan file, Anda juga bisa mengedit bagian <code>DEFAULT_CONFIG</code> di dalam file HTML.
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label for="cfgStoreName" class="block text-xs font-semibold text-slate-700 mb-1">Nama Toko / Usaha</label>
+            <input type="text" id="cfgStoreName" oninput="saveStoreConfig()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          <div>
+            <label for="cfgStoreAddress" class="block text-xs font-semibold text-slate-700 mb-1">Alamat Toko</label>
+            <textarea id="cfgStoreAddress" rows="2" oninput="saveStoreConfig()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+          </div>
+
+          <div>
+            <label for="cfgStorePhone" class="block text-xs font-semibold text-slate-700 mb-1">No. HP / WhatsApp</label>
+            <input type="text" id="cfgStorePhone" oninput="saveStoreConfig()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          <div>
+            <label for="cfgStoreFooter" class="block text-xs font-semibold text-slate-700 mb-1">Catatan Footer</label>
+            <textarea id="cfgStoreFooter" rows="2" oninput="saveStoreConfig()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div>
+              <label for="cfgCharWidth" class="block text-xs font-semibold text-slate-700 mb-1">Lebar Karakter Kertas</label>
+              <select id="cfgCharWidth" onchange="saveStoreConfig()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="32" selected>32 Karakter (Standar 58mm)</option>
+                <option value="30">30 Karakter (Margin Lebar)</option>
+              </select>
+            </div>
+            <div>
+              <label for="cfgFeedLines" class="block text-xs font-semibold text-slate-700 mb-1">Gulung Kertas Akhir (Feed)</label>
+              <select id="cfgFeedLines" onchange="saveStoreConfig()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="2">2 Baris</option>
+                <option value="3" selected>3 Baris</option>
+                <option value="4">4 Baris</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-slate-200">
+            <label for="cfgGeminiApiKey" class="block text-xs font-semibold text-slate-700 mb-1">Gemini API Key (Opsional untuk File Offline)</label>
+            <input type="password" id="cfgGeminiApiKey" oninput="saveStoreConfig()" placeholder="Kosongkan jika memakai mode bawaan / OCR lokal otomatis" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-[11px] text-slate-500 mt-1">Jika dikosongkan saat file dibuka di luar aplikasi ini, pemindaian foto otomatis memakai OCR Lokal bawaan browser.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- KOLOM KANAN: PREVIEW & TOMBOL CETAK (5 Kolom) -->
+    <div id="rightPreviewColumn" class="lg:col-span-5 hidden lg:flex flex-col items-center space-y-5">
+
+      <!-- Label Mode Pratinjau -->
+      <div class="text-center">
+        <span id="previewModeBadge" class="inline-block text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-slate-200/70 px-3 py-1 rounded-full">
+          Pratinjau Kertas 58mm (Mode Kasir)
+        </span>
+      </div>
+
+      <!-- Kertas Struk Thermal 58mm -->
+      <div id="receiptPaperCard" class="receipt-paper px-4 py-6 rounded-sm text-slate-900 max-w-full overflow-x-auto">
+        <pre id="receiptPreviewArea" class="font-receipt text-xs sm:text-[13px] leading-[1.45] whitespace-pre select-all mx-auto"></pre>
+      </div>
+
+      <div class="w-full bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+        <button type="button" id="btnPrintNow" onclick="printReceipt()" class="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-sm sm:text-base shadow-md shadow-emerald-600/20 transition flex items-center justify-center gap-2.5 cursor-pointer">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          <span>CETAK STRUK SEKARANG</span>
+        </button>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <button type="button" onclick="printTestPage()" class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+            <span>Tes Print 58mm</span>
+          </button>
+
+          <button type="button" onclick="copyReceiptText()" class="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span>Salin Teks Struk</span>
+          </button>
+        </div>
+
+        <!-- Tombol Bagikan ke WhatsApp (Teks & Gambar) -->
+        <div class="grid grid-cols-2 gap-2.5 pt-0.5">
+          <button type="button" onclick="shareReceiptToWhatsAppText()" class="py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#1fb858] active:bg-[#1aa34d] text-white font-semibold text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+            </svg>
+            <span>Kirim Teks WA</span>
+          </button>
+
+          <button type="button" onclick="shareReceiptToWhatsAppImage()" class="py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-semibold text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            <span>Kirim Gambar WA</span>
+          </button>
+        </div>
+
+        <!-- Jalur Cetak Alternatif (RawBT Android & Print Browser 58mm) -->
+        <div class="pt-2 border-t border-slate-100 space-y-2">
+          <div class="grid grid-cols-2 gap-2.5">
+            <button type="button" onclick="printViaRawBT()" class="py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[11px] transition flex items-center justify-center gap-1.5 cursor-pointer">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M12 2v10"></path>
+                <path d="m16 8-4 4-4-4"></path>
+                <rect x="4" y="14" width="16" height="6" rx="2"></rect>
+              </svg>
+              <span>Cetak via RawBT</span>
+            </button>
+
+            <button type="button" onclick="printViaBrowserDialog()" class="py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold text-[11px] transition flex items-center justify-center gap-1.5 cursor-pointer">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                <rect x="6" y="14" width="12" height="8"></rect>
+              </svg>
+              <span>Print Sistem 58mm</span>
+            </button>
+          </div>
+
+          <!-- Kotak Diagnostik & Solusi Jika Bluetooth Gagal Terhubung -->
+          <div id="btHelpBox" class="hidden rounded-xl bg-rose-50 border border-rose-200 p-3 text-[11px] text-rose-900 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-rose-800">Kenapa Bluetooth Belum Tersambung?</span>
+              <button type="button" onclick="document.getElementById('btHelpBox').classList.add('hidden')" class="text-rose-600 hover:text-rose-800 font-bold px-1 cursor-pointer">✕</button>
+            </div>
+            <p id="btHelpReason" class="text-rose-700 font-medium"></p>
+            <ul class="list-disc pl-4 space-y-1 text-rose-800/90">
+              <li><strong>Jika dibuka di Google Sites / Preview:</strong> Browser memblokir Bluetooth di dalam frame. Buka file <code class="bg-rose-100 px-1 rounded">.html</code> langsung di tab <strong>Google Chrome</strong> utama atau pakai tombol <strong>Cetak via RawBT</strong>.</li>
+              <li><strong>Aktifkan GPS / Lokasi HP:</strong> Android mewajibkan izin Lokasi menyala agar pemindaian Bluetooth printer muncul.</li>
+              <li><strong>Printer Bluetooth Classic (SPP):</strong> Sebagian printer 58mm lama hanya memakai Bluetooth Classic (bukan BLE). Gunakan tombol <strong>Cetak via RawBT (Android)</strong> di atas agar langsung tercetak.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- MENU NAVIGASI BAWAH (BOTTOM NAVIGATION BAR) -->
+  <nav aria-label="Menu Utama Bawah" class="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] bottom-nav-safe">
+    <div class="max-w-xl mx-auto grid grid-cols-5 h-16">
+      <button type="button" onclick="switchTab('dashboard')" id="bnav-dashboard" class="bnav-btn flex flex-col items-center justify-center gap-1 text-[#0284c7] font-semibold transition cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+          <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+          <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+          <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+        </svg>
+        <span class="text-[11px] leading-none">Dashboard</span>
+      </button>
+
+      <button type="button" onclick="switchTab('kasir')" id="bnav-kasir" class="bnav-btn flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-slate-800 font-medium transition cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+          <path d="m3.3 7 8.7 5 8.7-5"></path>
+          <path d="M12 22V12"></path>
+        </svg>
+        <span class="text-[11px] leading-none">Kasir</span>
+      </button>
+
+      <button type="button" onclick="switchTab('scan')" id="bnav-scan" class="bnav-btn flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-slate-800 font-medium transition cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+          <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+          <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+          <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+          <line x1="7" y1="12" x2="17" y2="12"></line>
+        </svg>
+        <span class="text-[11px] leading-none">Scan Foto</span>
+      </button>
+
+      <button type="button" onclick="switchTab('riwayat')" id="bnav-riwayat" class="bnav-btn flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-slate-800 font-medium transition cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+          <path d="M12 7v5l4 2"></path>
+        </svg>
+        <span class="text-[11px] leading-none">Riwayat</span>
+      </button>
+
+      <button type="button" onclick="switchTab('toko')" id="bnav-toko" class="bnav-btn flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-slate-800 font-medium transition cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span class="text-[11px] leading-none">Pengaturan</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- WADAH NOTIFIKASI TOAST -->
+  <div id="toastContainer" class="fixed bottom-20 right-4 left-4 sm:left-auto sm:w-96 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- SCRIPT APLIKASI -->
+  <script>
+    // =========================================================================
+    // KONFIGURASI DEFAULT TOKO (Bisa diedit langsung di sini atau di Tab 3)
+    // =========================================================================
+    const DEFAULT_CONFIG = {
+      storeName: "WARUNG KOPI NUSANTARA",
+      storeAddress: "Jl. Slamet Riyadi No. 123\nSurakarta, Jawa Tengah",
+      storePhone: "WA: 0812-3456-7890",
+      storeFooter: "Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar",
+      charWidth: 32,
+      feedLines: 3,
+      geminiApiKey: ""
+    };
+
+    let receiptItems = [
+      { id: 1, name: "Kopi Susu Gula Aren", qty: 2, price: 15000 },
+      { id: 2, name: "Roti Bakar Coklat", qty: 1, price: 12000 }
+    ];
+
+    let activeTab = 'dashboard';
+    let receiptMode = 'kasir'; // 'kasir' atau 'custom' (hasil scan foto)
+    let transactionHistory = [];
+    let isScanningImage = false;
+    let storeConfig = { ...DEFAULT_CONFIG };
+    let bluetoothDevice = null;
+    let printCharacteristic = null;
+    let lastScannedImageDataUrl = null;
+    let lastScannedImageBase64 = null;
+    let lastScannedImageMime = 'image/jpeg';
+
+    // =========================================================================
+    // FUNGSI UTILITAS & PEMFORMAT TEKS 58MM
+    // =========================================================================
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatRupiah(num) {
+      const n = Math.round(Number(num) || 0);
+      return 'Rp ' + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+
+    function normalizeCurrencyDisplay(valStr) {
+      let s = String(valStr || '').trim();
+      // Ubah variasi "Rp50.000", "Rp. 50.000,00", "IDR 50.000" menjadi "Rp 50.000"
+      const m = s.match(/^(?:-?\s*)?(?:rp\.?|idr)\s*([\d.,]+)(?:[,.]00)?$/i);
+      if (m) {
+        const digits = m[1].replace(/[^\d]/g, '');
+        if (digits) {
+          const isNeg = s.startsWith('-');
+          const formatted = Number(digits).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+          return `${isNeg ? '-' : ''}Rp ${formatted}`;
+        }
+      }
+      return s;
+    }
+
+    function getCurrentTimestamp() {
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+    }
+
+    function centerText(text, width) {
+      const clean = String(text || '').trim();
+      if (!clean) return [''];
+      const wrapped = wrapText(clean, width);
+      return wrapped.map(line => {
+        const trimmed = line.trim();
+        if (trimmed.length >= width) return trimmed.slice(0, width);
+        const padLeft = Math.floor((width - trimmed.length) / 2);
+        return ' '.repeat(padLeft) + trimmed;
+      });
+    }
+
+    function wrapText(text, width) {
+      const str = String(text ?? '');
+      if (!str) return [''];
+      if (/\s{2,}/.test(str) && str.length <= width) {
+        return [str];
+      }
+      const words = str.split(' ');
+      const lines = [];
+      let currentLine = '';
+
+      words.forEach(word => {
+        if (!word) return;
+        if (word.length > width) {
+          if (currentLine) {
+            lines.push(currentLine);
+            currentLine = '';
+          }
+          for (let i = 0; i < word.length; i += width) {
+            lines.push(word.slice(i, i + width));
+          }
+        } else if (!currentLine) {
+          currentLine = word;
+        } else if (currentLine.length + 1 + word.length <= width) {
+          currentLine += ' ' + word;
+        } else {
+          lines.push(currentLine);
+          currentLine = word;
+        }
+      });
+
+      if (currentLine) lines.push(currentLine);
+      return lines.length ? lines : [''];
+    }
+
+    function twoColumns(left, right, width) {
+      const lStr = String(left ?? '').trim();
+      const rStr = String(right ?? '').trim();
+      if (!rStr) {
+        return wrapText(lStr, width);
+      }
+      if (lStr.length + 1 + rStr.length <= width) {
+        const spaces = width - lStr.length - rStr.length;
+        return [lStr + ' '.repeat(spaces) + rStr];
+      }
+      const leftLines = wrapText(lStr, width);
+      const lastLeft = leftLines[leftLines.length - 1];
+      if (lastLeft.length + 1 + rStr.length <= width) {
+        const spaces = width - lastLeft.length - rStr.length;
+        leftLines[leftLines.length - 1] = lastLeft + ' '.repeat(spaces) + rStr;
+        return leftLines;
+      }
+      if (rStr.length <= width) {
+        const rightPad = Math.max(0, width - rStr.length);
+        leftLines.push(' '.repeat(rightPad) + rStr);
+        return leftLines;
+      }
+      const wrappedRight = wrapText(rStr, width);
+      wrappedRight.forEach(rl => {
+        const pad = Math.max(0, width - rl.length);
+        leftLines.push(' '.repeat(pad) + rl);
+      });
+      return leftLines;
+    }
+
+    function shortenReceiptLabel(label) {
+      let clean = String(label || '').trim();
+      const replacements = [
+        [/^nomor\s+referensi$/i, 'No. Ref'],
+        [/^no\.?\s*referensi$/i, 'No. Ref'],
+        [/^id\s+transaksi$/i, 'ID Trx'],
+        [/^nomor\s+transaksi$/i, 'No. Trx'],
+        [/^id\s+pelanggan$/i, 'ID Pel'],
+        [/^nomor\s+meter$/i, 'No. Meter'],
+        [/^nama\s+pelanggan$/i, 'Nama'],
+        [/^nama\s+penerima$/i, 'Penerima'],
+        [/^bank\s+tujuan$/i, 'Bank'],
+        [/^rekening\s+tujuan$/i, 'Rekening'],
+        [/^sumber\s+dana$/i, 'Sumber'],
+        [/^metode\s+pembayaran$/i, 'Metode'],
+        [/^nominal\s+transfer$/i, 'Nominal'],
+        [/^jumlah\s+transfer$/i, 'Nominal'],
+        [/^biaya\s+admin$/i, 'Admin'],
+        [/^biaya\s+transaksi$/i, 'Admin'],
+        [/^total\s+pembayaran$/i, 'TOTAL'],
+        [/^total\s+bayar$/i, 'TOTAL'],
+        [/^total\s+transaksi$/i, 'TOTAL'],
+        [/^tarif\s*\/\s*daya$/i, 'Tarif/Daya'],
+        [/^jumlah\s+kwh$/i, 'Jml KWH'],
+        [/^waktu\s+transaksi$/i, 'Waktu']
+      ];
+      for (const [pattern, shortText] of replacements) {
+        if (pattern.test(clean)) return shortText;
+      }
+      return clean;
+    }
+
+    function normalizeScannedLines(lines, width) {
+      const out = [];
+      let prevWasDivider = false;
+
+      for (let raw of lines) {
+        let line = String(raw || '').trim();
+        if (!line) {
+          if (out.length > 0 && out[out.length - 1] !== '' && !prevWasDivider) {
+            out.push('');
+          }
+          continue;
+        }
+
+        if (/^[-=_.]{4,}$/.test(line)) {
+          if (!prevWasDivider) {
+            const char = line.includes('=') ? '=' : '-';
+            out.push(char.repeat(width));
+            prevWasDivider = true;
+          }
+          continue;
+        }
+        prevWasDivider = false;
+
+        let isCenter = false;
+        let isBold = false;
+        if (line.includes('[TENGAH]')) {
+          isCenter = true;
+          line = line.replace(/\[TENGAH\]/g, '').trim();
+        }
+        if (line.includes('[TEBAL]')) {
+          isBold = true;
+          line = line.replace(/\[TEBAL\]/g, '').trim();
+        }
+
+        if (!line) continue;
+
+        if (isCenter) {
+          const prefix = (isBold ? '[TEBAL]' : '') + '[TENGAH]';
+          out.push(prefix + line);
+          continue;
+        }
+
+        // Deteksi pola "Label : Nilai" atau "Label   Nilai"
+        let leftPart = null;
+        let rightPart = null;
+        const colonMatch = line.match(/^([^:]{2,22})\s*:\s*(.+)$/);
+        const multiSpaceMatch = line.match(/^(.{2,22}?)\s{2,}(.+)$/);
+
+        if (colonMatch) {
+          leftPart = shortenReceiptLabel(colonMatch[1]);
+          rightPart = colonMatch[2].trim();
+        } else if (multiSpaceMatch) {
+          leftPart = shortenReceiptLabel(multiSpaceMatch[1]);
+          rightPart = multiSpaceMatch[2].trim();
+        }
+
+        if (leftPart && rightPart) {
+          const isTotalRow = /^total$/i.test(leftPart);
+          if (isTotalRow) {
+            if (out.length > 0 && !/^[=-]{4,}$/.test(out[out.length - 1])) {
+              out.push('='.repeat(width));
+            }
+            const formatted = twoColumns('TOTAL', rightPart, width);
+            formatted.forEach(l => out.push('[TEBAL]' + l));
+            out.push('='.repeat(width));
+            prevWasDivider = true;
+          } else {
+            const formatted = twoColumns(leftPart, rightPart, width);
+            formatted.forEach(l => out.push((isBold ? '[TEBAL]' : '') + l));
+          }
+        } else {
+          const wrapped = wrapText(line, width);
+          wrapped.forEach(l => out.push((isBold ? '[TEBAL]' : '') + l));
+        }
+      }
+
+      while (out.length > 0 && out[out.length - 1] === '') {
+        out.pop();
+      }
+      return out;
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const colors = {
+        success: 'bg-emerald-600 text-white border-emerald-700',
+        error: 'bg-rose-600 text-white border-rose-700',
+        info: 'bg-slate-900 text-white border-slate-800',
+        warning: 'bg-amber-600 text-white border-amber-700'
+      };
+
+      const toast = document.createElement('div');
+      toast.className = `toast-enter pointer-events-auto px-4 py-3 rounded-xl shadow-lg border text-xs sm:text-sm font-medium flex items-center justify-between gap-3 ${colors[type] || colors.info}`;
+      toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.25s ease';
+        setTimeout(() => toast.remove(), 250);
+      }, 3200);
+    }
+
+    // =========================================================================
+    // NAVIGASI TAB & MODE PRATINJAU
+    // =========================================================================
+    function switchTab(tabName) {
+      activeTab = tabName;
+
+      ['dashboard', 'kasir', 'scan', 'riwayat', 'toko'].forEach(t => {
+        const bnavBtn = document.getElementById('bnav-' + t);
+        const panel = document.getElementById('panel-' + t);
+        if (panel) {
+          if (t === tabName) {
+            panel.classList.remove('hidden');
+          } else {
+            panel.classList.add('hidden');
+          }
+        }
+        if (bnavBtn) {
+          if (t === tabName) {
+            bnavBtn.classList.add('text-[#0284c7]', 'font-semibold');
+            bnavBtn.classList.remove('text-slate-500', 'font-medium');
+          } else {
+            bnavBtn.classList.remove('text-[#0284c7]', 'font-semibold');
+            bnavBtn.classList.add('text-slate-500', 'font-medium');
+          }
+        }
+      });
+
+      // Tampilkan kolom pratinjau kertas 58mm di mobile saat membuka Kasir / Scan Foto
+      const rightPreview = document.getElementById('rightPreviewColumn');
+      if (rightPreview) {
+        if (tabName === 'kasir' || tabName === 'scan') {
+          rightPreview.classList.remove('hidden');
+          rightPreview.classList.add('flex');
+        } else {
+          rightPreview.classList.add('hidden');
+          rightPreview.classList.remove('flex');
+        }
+      }
+
+      if (tabName === 'kasir') {
+        receiptMode = 'kasir';
+      } else if (tabName === 'scan') {
+        receiptMode = 'custom';
+      } else if (tabName === 'dashboard') {
+        updateDashboardStats();
+      } else if (tabName === 'riwayat') {
+        renderHistoryList();
+      }
+
+      renderPreview();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function setKasirModeAndRender() {
+      receiptMode = 'kasir';
+      renderPreview();
+    }
+
+    function syncCustomTextFromScan(val) {
+      receiptMode = 'custom';
+      renderPreview();
+    }
+
+    function syncHeaderCheckbox(checked) {
+      receiptMode = 'custom';
+      renderPreview();
+    }
+
+    function reformatScanTextarea() {
+      const scanTextarea = document.getElementById('scanExtractedText');
+      if (!scanTextarea) return;
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      const rawLines = scanTextarea.value.split('\n');
+      const normalized = normalizeScannedLines(rawLines, width);
+      scanTextarea.value = normalized.join('\n');
+      receiptMode = 'custom';
+      renderPreview();
+      showToast('Tata letak teks struk 58mm dirapikan.', 'success');
+    }
+
+    // =========================================================================
+    // TAB 1: MANAJEMEN ITEM KASIR
+    // =========================================================================
+    function renderItemInputs() {
+      const container = document.getElementById('itemsContainer');
+      if (!container) return;
+
+      container.innerHTML = receiptItems.map((item, idx) => `
+        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-400 w-5">${idx + 1}.</span>
+            <input type="text" value="${escapeHtml(item.name)}" placeholder="Nama item / produk"
+              oninput="updateItemRow(${item.id}, 'name', this.value)"
+              class="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button type="button" onclick="removeItemRow(${item.id})" title="Hapus baris"
+              class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-2 pl-7">
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Qty</label>
+              <input type="number" value="${item.qty}" min="1"
+                oninput="updateItemRow(${item.id}, 'qty', this.value)"
+                class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Harga Satuan (Rp)</label>
+              <input type="number" value="${item.price}" min="0" step="500"
+                oninput="updateItemRow(${item.id}, 'price', this.value)"
+                class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function addItemRow() {
+      const newId = receiptItems.length ? Math.max(...receiptItems.map(i => i.id)) + 1 : 1;
+      receiptItems.push({ id: newId, name: "Item Baru", qty: 1, price: 10000 });
+      renderItemInputs();
+      updateDashboardStats();
+      setKasirModeAndRender();
+    }
+
+    function updateItemRow(id, field, value) {
+      const idx = receiptItems.findIndex(i => i.id === id);
+      if (idx === -1) return;
+      if (field === 'name') {
+        receiptItems[idx].name = value;
+      } else {
+        receiptItems[idx][field] = Math.max(0, Number(value) || 0);
+      }
+      setKasirModeAndRender();
+    }
+
+    function removeItemRow(id) {
+      if (receiptItems.length <= 1) {
+        showToast('Minimal harus ada 1 baris item.', 'warning');
+        return;
+      }
+      receiptItems = receiptItems.filter(i => i.id !== id);
+      renderItemInputs();
+      updateDashboardStats();
+      setKasirModeAndRender();
+    }
+
+    // =========================================================================
+    // DASHBOARD REKAP PENJUALAN & RIWAYAT TRANSAKSI
+    // =========================================================================
+    function loadTransactionHistory() {
+      try {
+        const raw = localStorage.getItem('cetak_struk_58mm_history_v1');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) transactionHistory = parsed;
+        }
+      } catch (e) {
+        // Abaikan jika localStorage dibatasi
+      }
+    }
+
+    function persistTransactionHistory() {
+      try {
+        localStorage.setItem('cetak_struk_58mm_history_v1', JSON.stringify(transactionHistory.slice(0, 150)));
+      } catch (e) {
+        // Abaikan jika localStorage dibatasi
+      }
+    }
+
+    function getCurrentReceiptTotalAmount() {
+      if (receiptMode === 'custom') {
+        const rawText = document.getElementById('scanExtractedText')?.value || '';
+        const detected = detectAmountsFromLines(rawText.split('\n'));
+        return detected.totalAmount || (detected.baseAmount + detected.adminFee) || 0;
+      }
+      const diskon = Math.max(0, Number(document.getElementById('inputDiskon')?.value) || 0);
+      const subtotal = receiptItems.reduce((sum, item) => sum + ((Number(item.qty) || 0) * (Number(item.price) || 0)), 0);
+      return Math.max(0, subtotal - diskon);
+    }
+
+    function saveCurrentReceiptToHistory(showNotification = false) {
+      const lines = buildReceiptLines();
+      const plainText = getPlainReceiptText().trim();
+      if (!plainText || plainText.includes('Belum ada foto dipindai.')) {
+        if (showNotification) showToast('Belum ada isi struk untuk disimpan.', 'warning');
+        return;
+      }
+
+      const amount = getCurrentReceiptTotalAmount();
+      const now = Date.now();
+      const title = receiptMode === 'custom'
+        ? 'Struk Scan Foto'
+        : (document.getElementById('inputNoNota')?.value.trim() || 'Nota Kasir');
+
+      // Hindari duplikasi jika baru saja disimpan dalam 4 detik terakhir dengan isi sama
+      const last = transactionHistory[0];
+      if (last && (now - last.timestamp) < 4000 && last.plainText === plainText) {
+        if (showNotification) showToast('Transaksi sudah tersimpan di riwayat.', 'info');
+        return;
+      }
+
+      transactionHistory.unshift({
+        id: 'TRX-' + now,
+        timestamp: now,
+        timeLabel: getCurrentTimestamp(),
+        title,
+        mode: receiptMode,
+        amount,
+        lines,
+        plainText
+      });
+
+      persistTransactionHistory();
+      updateDashboardStats();
+      if (activeTab === 'riwayat') renderHistoryList();
+      if (showNotification) showToast('Transaksi disimpan ke Riwayat & Rekap!', 'success');
+    }
+
+    function updateDashboardStats() {
+      const nameEl = document.getElementById('dashStoreName');
+      const subEl = document.getElementById('dashStoreSubtitle');
+      const itemCountEl = document.getElementById('dashItemCount');
+      const todayCountEl = document.getElementById('dashTodayTrxCount');
+      const salesTodayEl = document.getElementById('dashSalesToday');
+      const sales7DaysEl = document.getElementById('dashSales7Days');
+      const salesMonthEl = document.getElementById('dashSalesMonth');
+
+      if (nameEl) nameEl.textContent = (storeConfig.storeName || 'TOKO / KONTER').toUpperCase();
+      if (subEl) {
+        const firstAddr = (storeConfig.storeAddress || '').split('\n')[0]?.trim();
+        subEl.textContent = firstAddr || 'Konter & Kasir Bluetooth 58mm';
+      }
+      if (itemCountEl) itemCountEl.textContent = String(receiptItems.length);
+
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const startOf7Days = startOfToday - (6 * 24 * 60 * 60 * 1000);
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+      let countToday = 0;
+      let sumToday = 0;
+      let sum7Days = 0;
+      let sumMonth = 0;
+
+      transactionHistory.forEach(trx => {
+        const ts = Number(trx.timestamp) || 0;
+        const amt = Number(trx.amount) || 0;
+        if (ts >= startOfToday) {
+          countToday++;
+          sumToday += amt;
+        }
+        if (ts >= startOf7Days) {
+          sum7Days += amt;
+        }
+        if (ts >= startOfMonth) {
+          sumMonth += amt;
+        }
+      });
+
+      if (todayCountEl) todayCountEl.textContent = String(countToday);
+      if (salesTodayEl) salesTodayEl.textContent = formatRupiah(sumToday);
+      if (sales7DaysEl) sales7DaysEl.textContent = formatRupiah(sum7Days);
+      if (salesMonthEl) salesMonthEl.textContent = formatRupiah(sumMonth);
+    }
+
+    function renderHistoryList() {
+      const container = document.getElementById('historyListContainer');
+      if (!container) return;
+
+      if (transactionHistory.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-10 px-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+            <div class="text-3xl mb-2">🧾</div>
+            <p class="text-sm font-semibold text-slate-700">Belum Ada Riwayat Transaksi</p>
+            <p class="text-xs text-slate-500 mt-1">Transaksi otomatis masuk ke sini saat Anda mencetak struk atau menekan tombol Simpan Rekap.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = transactionHistory.map((trx, idx) => `
+        <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-slate-900">${escapeHtml(trx.title)}</span>
+                <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full ${trx.mode === 'custom' ? 'bg-indigo-100 text-indigo-700' : 'bg-sky-100 text-sky-700'}">
+                  ${trx.mode === 'custom' ? 'Scan Foto' : 'Kasir'}
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-0.5">${escapeHtml(trx.timeLabel)}</p>
+            </div>
+            <span class="text-sm font-extrabold text-emerald-700">${formatRupiah(trx.amount)}</span>
+          </div>
+
+          <div class="flex items-center gap-2 pt-1">
+            <button type="button" onclick="loadHistoryItemToPreview(${idx})" class="flex-1 py-1.5 px-3 rounded-xl bg-white hover:bg-sky-50 text-sky-700 border border-slate-200 text-xs font-semibold transition cursor-pointer">
+              Lihat &amp; Cetak Ulang
+            </button>
+            <button type="button" onclick="deleteHistoryItem(${idx})" class="py-1.5 px-2.5 rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 text-xs font-semibold transition cursor-pointer">
+              Hapus
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function loadHistoryItemToPreview(idx) {
+      const trx = transactionHistory[idx];
+      if (!trx) return;
+
+      const scanTextarea = document.getElementById('scanExtractedText');
+      const chkHF = document.getElementById('chkIncludeHeaderFooterScan');
+      if (scanTextarea) {
+        scanTextarea.value = (trx.lines || []).join('\n');
+      }
+      if (chkHF) {
+        chkHF.checked = false;
+      }
+
+      switchTab('scan');
+      showToast('Struk riwayat dimuat! Siap dicetak atau dibagikan.', 'success');
+    }
+
+    function deleteHistoryItem(idx) {
+      transactionHistory.splice(idx, 1);
+      persistTransactionHistory();
+      updateDashboardStats();
+      renderHistoryList();
+      showToast('Riwayat transaksi dihapus.', 'info');
+    }
+
+    function clearTransactionHistory() {
+      if (transactionHistory.length === 0) return;
+      transactionHistory = [];
+      persistTransactionHistory();
+      updateDashboardStats();
+      renderHistoryList();
+      showToast('Semua riwayat transaksi dibersihkan.', 'info');
+    }
+
+    // =========================================================================
+    // TAB 2: SCAN SCREENSHOT / FOTO (AI OCR + LOCAL OCR FALLBACK)
+    // =========================================================================
+    function setupImagePasteAndDrop() {
+      // Global Ctrl+V paste gambar dari clipboard di mana saja
+      document.addEventListener('paste', (e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+          if (item.type && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+              e.preventDefault();
+              switchTab('scan');
+              processUploadedImageFile(file);
+              break;
+            }
+          }
+        }
+      });
+
+      const dropZone = document.getElementById('dropZoneScan');
+      if (!dropZone) return;
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-blue-500', 'bg-blue-50');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        const file = e.dataTransfer?.files?.[0];
+        if (file && file.type.startsWith('image/')) {
+          processUploadedImageFile(file);
+        } else {
+          showToast('Harap pilih file gambar (JPG, PNG, WebP).', 'warning');
+        }
+      });
+    }
+
+    function handleImageFileSelect(event) {
+      const file = event.target?.files?.[0];
+      if (!file) return;
+      processUploadedImageFile(file);
+      event.target.value = '';
+    }
+
+    function compressImageToJpeg(dataUrl, maxDim = 1280, quality = 0.88) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve({
+            dataUrl: compressedDataUrl,
+            base64: compressedDataUrl.split(',')[1],
+            mimeType: 'image/jpeg'
+          });
+        };
+        img.onerror = () => {
+          resolve({
+            dataUrl,
+            base64: dataUrl.split(',')[1],
+            mimeType: 'image/jpeg'
+          });
+        };
+        img.src = dataUrl;
+      });
+    }
+
+    function processUploadedImageFile(file) {
+      if (!file.type.startsWith('image/')) {
+        showToast('File harus berupa gambar.', 'error');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const rawDataUrl = e.target.result;
+        const compressed = await compressImageToJpeg(rawDataUrl, 1280, 0.88);
+
+        lastScannedImageDataUrl = compressed.dataUrl;
+        lastScannedImageBase64 = compressed.base64;
+        lastScannedImageMime = compressed.mimeType;
+
+        const previewContainer = document.getElementById('scanPreviewContainer');
+        const previewImg = document.getElementById('scanImagePreview');
+        if (previewContainer && previewImg) {
+          previewImg.src = compressed.dataUrl;
+          previewContainer.classList.remove('hidden');
+        }
+
+        await scanImageWithAI(compressed.base64, compressed.mimeType, false);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function reprocessCurrentImage(forceLocalOcr = false) {
+      if (!lastScannedImageBase64) {
+        showToast('Belum ada gambar yang diunggah.', 'warning');
+        return;
+      }
+      scanImageWithAI(lastScannedImageBase64, lastScannedImageMime, forceLocalOcr);
+    }
+
+    function parseCurrencyDigits(str) {
+      if (!str) return 0;
+      const digits = String(str).replace(/[^\d]/g, '');
+      return parseInt(digits, 10) || 0;
+    }
+
+    function detectAmountsFromLines(lines) {
+      let baseAmount = 0;
+      let adminFee = 0;
+      let totalAmount = 0;
+
+      for (const line of lines) {
+        const clean = line.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim();
+        if (/^(nominal|jumlah|tagihan|harga|subtotal)/i.test(clean)) {
+          const m = clean.match(/([\d.,]{3,})\s*$/);
+          if (m) baseAmount = parseCurrencyDigits(m[1]);
+        } else if (/^admin/i.test(clean)) {
+          const m = clean.match(/([\d.,]+)\s*$/);
+          if (m) adminFee = parseCurrencyDigits(m[1]);
+        } else if (/^total/i.test(clean)) {
+          const m = clean.match(/([\d.,]{3,})\s*$/);
+          if (m) totalAmount = parseCurrencyDigits(m[1]);
+        }
+      }
+
+      if (!baseAmount && totalAmount > 0) {
+        baseAmount = Math.max(0, totalAmount - adminFee);
+      }
+
+      return { baseAmount, adminFee, totalAmount };
+    }
+
+    function updateScanAdminFee(rawVal) {
+      const adminFee = Math.max(0, parseInt(rawVal, 10) || 0);
+      const scanTextarea = document.getElementById('scanExtractedText');
+      const summaryEl = document.getElementById('scanAmountSummary');
+      if (!scanTextarea) return;
+
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      const lines = scanTextarea.value.split('\n');
+      const { baseAmount } = detectAmountsFromLines(lines);
+
+      let foundAdmin = false;
+      let foundTotal = false;
+      const updatedLines = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const rawLine = lines[i];
+        const clean = rawLine.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim();
+
+        if (/^admin\b/i.test(clean)) {
+          foundAdmin = true;
+          updatedLines.push(...twoColumns('Admin', formatRupiah(adminFee), width));
+        } else if (/^total\b/i.test(clean)) {
+          foundTotal = true;
+          const newTotal = baseAmount > 0 ? baseAmount + adminFee : adminFee;
+          updatedLines.push(...twoColumns('TOTAL', formatRupiah(newTotal), width).map(l => '[TEBAL]' + l));
+        } else {
+          updatedLines.push(rawLine);
+        }
+      }
+
+      if (!foundAdmin && updatedLines.length > 0) {
+        const insertIdx = updatedLines.findIndex(l => /^=+$/.test(l.trim()));
+        const adminLines = twoColumns('Admin', formatRupiah(adminFee), width);
+        if (insertIdx !== -1) {
+          updatedLines.splice(insertIdx, 0, ...adminLines);
+        } else {
+          updatedLines.push('-'.repeat(width), ...adminLines);
+        }
+      }
+
+      if (!foundTotal && baseAmount > 0) {
+        const newTotal = baseAmount + adminFee;
+        updatedLines.push(
+          '='.repeat(width),
+          ...twoColumns('TOTAL', formatRupiah(newTotal), width).map(l => '[TEBAL]' + l),
+          '='.repeat(width)
+        );
+      }
+
+      scanTextarea.value = updatedLines.join('\n');
+      if (summaryEl) {
+        const totalShow = baseAmount > 0 ? baseAmount + adminFee : adminFee;
+        summaryEl.textContent = baseAmount > 0
+          ? `Admin: ${formatRupiah(adminFee)} | Total: ${formatRupiah(totalShow)}`
+          : `Admin: ${formatRupiah(adminFee)}`;
+      }
+
+      receiptMode = 'custom';
+      renderPreview();
+    }
+
+    function setQuickAdminFee(amount) {
+      const inputEl = document.getElementById('inputScanAdminFee');
+      if (inputEl) {
+        inputEl.value = amount;
+        updateScanAdminFee(amount);
+      }
+    }
+
+    function parseRawOcrToReceiptLines(rawText, width) {
+      const fullUpper = String(rawText || '').toUpperCase();
+      const isPlnReceipt = /\b(PLN|TOKEN|STROOM|KWH|TARIF\/DAYA|METER)\b/.test(fullUpper);
+
+      // Bersihkan karakter sampah OCR sebelum diproses per baris
+      const rawLines = String(rawText || '')
+        .replace(/[©®™€£¥¢•●▪■□◆◇★☆—–]/g, ' ')
+        .replace(/[:;"]{2,}/g, '****')
+        .replace(/\+{3,}/g, '****')
+        .replace(/(\*{2,}\d+)\s+(\d{1,3})\b/g, '$1$2')
+        .split('\n')
+        .map(l => l.replace(/\s+/g, ' ').trim())
+        .filter(l => l.length > 0);
+
+      // Gabungkan potongan angka kecil yang terputus baris (misal: "****487" + "4" -> "****4874")
+      const mergedLines = [];
+      for (let i = 0; i < rawLines.length; i++) {
+        const cur = rawLines[i];
+        const next = rawLines[i + 1];
+        if (next && /^\d{1,3}$/.test(next) && /(\*{2,}|\d{3,})$/.test(cur)) {
+          mergedLines.push(cur + next);
+          i++;
+        } else {
+          mergedLines.push(cur);
+        }
+      }
+
+      // Pola noise UI HP, status bar atas, tombol aplikasi sejajar, promo, dan catatan kaki legal
+      const noisePatterns = [
+        /^\d{1,2}[:.]\d{2}(\s*(am|pm))?$/i,
+        /^\d{3,4}\s*[@#]\s*waall/i,
+        /^(4g|5g|lte|3g|h\+|wifi|volte|kb\/s|mb\/s|\d{1,3}%)$/i,
+        /^[0-9a-zA-Z]{0,2}[<>[\](){}|\\\/.,:;!@#$%^&*_+=~`'"✓✔✕✖×\-]{1,8}$/,
+        /^[\[\](){}|\\<>@#*+=~^0-9]{1,5}\s+[a-z]{3,}$/i,
+        /^[\[\]{}|\\<>@#*+=~^]+\s*\d*\s+\S+/,
+        /^[<>«»]\s*(detail|bukti|rincian|struk)\s+transaksi/i,
+        /^(detail transaksi|bukti transaksi|rincian transaksi|struk transaksi|transaksi detail|detail penerima|detail pengirim|rincian pembayaran|informasi transaksi)$/i,
+        /^id\s+dana\s+\d+/i,
+        /^.{0,6}\b(transaksi|pembayaran|transfer|top\s*up|pembelian)\s+(berhasil|sukses)[!.]*$/i,
+        /\b(chat\s*dengan\s*cs|hubungi\s*cs|butuh\s*bantuan|pusat\s*bantuan|transfer\s+lagi|kirim\s+lagi|transaksi\s+lagi|split\s*-?\s*atur\s+jumlah|bagi\s+bukti\s+bayar|bagikan\s+bukti|bagikan\s+struk|simpan\s+ke\s+galeri|cek\s+saldo|lihat\s+mutasi)\b/i,
+        /^.{0,5}\b(bagikan|unduh|download|simpan|cetak|print|selesai|tutup|kembali|beranda|home|bantuan|hubungi kami|laporkan masalah|lihat bukti|lihat detail|sembunyikan|salin|copy|kirim ulang)\b[!.]*$/i,
+        /(termasuk\s+ppn|termasuk\s+pajak|bisa\s+dapet|s\.d\.\s*\d+|cashback|syarat\s+(&|dan)\s+ketentuan|diawasi\s+oleh\s+ojk)/i
+      ];
+
+      // Daftar label umum transaksi (urutan dari yang terpanjang agar pencocokan prefix akurat)
+      const knownLabels = [
+        'metode pembayaran', 'nomor referensi', 'no. referensi', 'no referensi',
+        'tanggal transaksi', 'waktu transaksi', 'tgl transaksi',
+        'nominal transfer', 'jumlah transfer', 'total pembayaran', 'total transaksi',
+        'nomor rekening', 'no. rekening', 'rekening tujuan', 'rekening sumber',
+        'nomor tujuan', 'no. tujuan', 'nomor handphone', 'nomor telepon',
+        'nama pelanggan', 'nama penerima', 'nama merchant', 'bank penerima',
+        'jenis transaksi', 'tipe transaksi', 'biaya transaksi', 'biaya layanan',
+        'id transaksi', 'no. transaksi', 'nomor transaksi', 'kode transaksi',
+        'id pelanggan', 'nomor meter', 'no. meter', 'tarif/daya', 'tarif / daya',
+        'jumlah kwh', 'stand meter', 'sumber dana', 'bank tujuan', 'akun bank',
+        'metode bayar', 'biaya admin', 'total tagihan', 'total bayar', 'total harga',
+        'jumlah bayar', 'nilai transaksi', 'no. ref', 'no ref', 'referensi',
+        'no. hp', 'no hp', 'nomor hp', 'id pel', 'no meter', 'jml kwh',
+        'penerima', 'pengirim', 'merchant', 'layanan', 'produk', 'kategori',
+        'tanggal', 'waktu', 'tujuan', 'bank', 'nama', 'nominal', 'jumlah',
+        'tagihan', 'subtotal', 'harga', 'admin', 'biaya', 'ppn', 'materai',
+        'total', 'status', 'keterangan', 'catatan', 'berita'
+      ];
+
+      const stripTrailingIconNoise = (str) => {
+        return String(str || '')
+          .replace(/\s+[)\]>}|\\\/<(\[@#*~^]+$/g, '')
+          .replace(/^[)\]>}|\\\/<(\[@#*~^]+\s+/g, '')
+          .trim();
+      };
+
+      const isNoiseLine = (str) => {
+        const alnumCount = (str.match(/[a-zA-Z0-9]/g) || []).length;
+        if (alnumCount < 2 && !/^rp\s*0$/i.test(str)) return true;
+        return noisePatterns.some(rx => rx.test(str));
+      };
+
+      const isKnownLabel = (str) => {
+        const clean = str.replace(/:$/, '').trim().toLowerCase();
+        return knownLabels.includes(clean);
+      };
+
+      const isBankOrAccountLine = (str) => {
+        return /^(bri|bca|bni|mandiri|bsi|btn|cimb|permata|danamon|seabank|jago|bank jago|neo|bnc|allo|ocbc|panin|mega|sinarmas|maybank|jenius|gopay|dana|ovo|shopeepay|linkaja)\b/i.test(str) ||
+          /(\*{2,}\d{3,}|\b\d{8,18}\b)/.test(str);
+      };
+
+      // Pisahkan jika label & nilai menempel dalam 1 baris tanpa titik dua (contoh: "Metode Pembayaran Saldo DANA")
+      const splitInlineLabelValue = (str) => {
+        const lower = str.toLowerCase();
+        for (const lbl of knownLabels) {
+          if (lower.startsWith(lbl + ' ') && str.length > lbl.length + 1) {
+            const rawKey = str.slice(0, lbl.length);
+            const rawVal = str.slice(lbl.length).replace(/^[:\s-]+/, '').trim();
+            if (rawVal) {
+              return { key: shortenReceiptLabel(rawKey), val: rawVal };
+            }
+          }
+        }
+        return null;
+      };
+
+      // Buang status bar dan elemen UI non-struk
+      const cleaned = mergedLines.filter((l, idx) => {
+        if (idx <= 2 && /^\d{3,4}\s*[@#a-z]{1,6}/i.test(l)) return false;
+        return !isNoiseLine(l);
+      });
+
+      // Deteksi judul transaksi utama
+      let receiptTitle = 'BUKTI TRANSAKSI';
+      for (let i = 0; i < Math.min(10, cleaned.length); i++) {
+        const upper = cleaned[i].toUpperCase();
+        if (/DITRANSFER\s+KE|TRANSFER\s+KE|KIRIM\s+UANG|TRANSFER\s+BERHASIL/.test(upper)) { receiptTitle = 'BUKTI TRANSFER'; break; }
+        if (/PEMBAYARAN\s+QRIS|QRIS/.test(upper)) { receiptTitle = 'PEMBAYARAN QRIS'; break; }
+        if (isPlnReceipt) { receiptTitle = 'TOKEN LISTRIK PLN'; break; }
+        if (/TOP\s*UP/.test(upper)) { receiptTitle = 'BUKTI TOP UP'; break; }
+        if (/PEMBELIAN/.test(upper)) { receiptTitle = 'BUKTI PEMBELIAN'; break; }
+      }
+
+      const structured = [];
+      structured.push(`[TENGAH][TEBAL]${receiptTitle}`);
+      structured.push('-'.repeat(width));
+
+      let detectedDateOnly = null;
+      let detectedTimeOnly = null;
+      let detectedMethod = null;
+      let fallbackRecipient = null;
+      let fallbackBank = null;
+      let structuredRecipient = null;
+      let structuredBank = null;
+      let detectedTrxId = null;
+      let detectedAmount = null;
+      let detectedAdmin = null;
+      let detectedTotal = null;
+      let inNarrativeBlock = false;
+      const extraDetails = [];
+
+      for (let i = 0; i < cleaned.length; i++) {
+        const line = cleaned[i];
+
+        // 0A. Deteksi baris tunggal "Ditransfer ke: Nama Penerima" atau "Ditransfer ke Nama Penerima"
+        const inlineTransferToMatch = line.match(/^(?:ditransfer\s+ke|transfer\s+ke|dikirim\s+ke|tujuan\s+transfer)(?:\s*:\s*|\s+)(.+)$/i);
+        if (inlineTransferToMatch && !/^[:\-)>]+$/.test(inlineTransferToMatch[1].trim())) {
+          inNarrativeBlock = false;
+          structuredRecipient = stripTrailingIconNoise(inlineTransferToMatch[1]);
+          if (i + 1 < cleaned.length && !isKnownLabel(cleaned[i + 1]) && isBankOrAccountLine(cleaned[i + 1])) {
+            structuredBank = stripTrailingIconNoise(cleaned[i + 1]);
+            i++;
+          }
+          continue;
+        }
+
+        // 0B. Deteksi header blok "Ditransfer ke" / "Transfer ke" (berdiri sendiri dalam 1 baris)
+        if (/^(?:ditransfer\s+ke|transfer\s+ke|dikirim\s+ke|tujuan\s+transfer)\s*[:\-)>]*$/i.test(line)) {
+          inNarrativeBlock = false;
+          if (i + 1 < cleaned.length && !isKnownLabel(cleaned[i + 1])) {
+            structuredRecipient = stripTrailingIconNoise(cleaned[i + 1]);
+            i++;
+            if (i + 1 < cleaned.length && !isKnownLabel(cleaned[i + 1]) && isBankOrAccountLine(cleaned[i + 1])) {
+              structuredBank = stripTrailingIconNoise(cleaned[i + 1]);
+              i++;
+            }
+          }
+          continue;
+        }
+
+        // 1. Deteksi baris tanggal (contoh: "15 Nov 2026 • 11:31" atau "15 Nov 2026 + 11")
+        const dateMatch = line.match(/^(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s+\d{4})(?:.*?\b(\d{1,2}[:.]\d{2})\b)?/i);
+        if (dateMatch && !detectedDateOnly) {
+          detectedDateOnly = dateMatch[1];
+          if (dateMatch[2] && !detectedTimeOnly) {
+            detectedTimeOnly = dateMatch[2].replace('.', ':');
+          }
+          continue;
+        }
+
+        // 2. Deteksi ringkasan naratif DANA: "Kirim Uang Rp300.000 ke MUHAMAD ..."
+        const danaSummaryMatch = line.match(/^(?:kirim\s+uang|transfer)\s+(?:rp\.?|idr)\s*([\d.,]+)\s+ke\s+(.+)$/i);
+        if (danaSummaryMatch) {
+          inNarrativeBlock = true;
+          detectedAmount = normalizeCurrencyDisplay('Rp ' + danaSummaryMatch[1]);
+          const targetPart = stripTrailingIconNoise(danaSummaryMatch[2]);
+          const dashSplit = targetPart.split(/\s+-\s+/);
+          if (dashSplit.length >= 2) {
+            fallbackRecipient = dashSplit[0].trim();
+            fallbackBank = dashSplit.slice(1).join(' - ').trim();
+          } else {
+            fallbackRecipient = targetPart;
+          }
+          continue;
+        }
+
+        // 3. Deteksi deretan 20 digit: Token PLN vs ID Transaksi
+        const twentyDigitsMatch = line.match(/(\d{4}[\s-]?){4}\d{4}/);
+        if (twentyDigitsMatch) {
+          const digitsOnly = twentyDigitsMatch[0].replace(/[^\d]/g, '');
+          if (digitsOnly.length === 20) {
+            inNarrativeBlock = false;
+            if (isPlnReceipt) {
+              const formattedToken = digitsOnly.match(/.{1,4}/g).join('-');
+              extraDetails.push('[TENGAH]TOKEN LISTRIK:');
+              extraDetails.push(`[TENGAH][TEBAL]${formattedToken}`);
+            } else {
+              detectedTrxId = digitsOnly;
+            }
+            continue;
+          }
+        }
+
+        // 4. Tangkap nominal berdiri sendiri di bagian atas
+        if (i <= 5 && /^(?:rp\.?|idr)\s*[\d.,]+$/i.test(line) && !detectedAmount) {
+          detectedAmount = normalizeCurrencyDisplay(line);
+          continue;
+        }
+
+        // 5. Ekstrak pasangan Key-Value (Colon, Inline Prefix, atau Multi-baris)
+        let kv = null;
+        const colonMatch = line.match(/^([^:]{2,24})\s*:\s*(.+)$/);
+        if (colonMatch) {
+          kv = { key: shortenReceiptLabel(colonMatch[1]), val: colonMatch[2].trim() };
+        } else {
+          const inlineKv = splitInlineLabelValue(line);
+          if (inlineKv) {
+            kv = inlineKv;
+          } else if (isKnownLabel(line) && i + 1 < cleaned.length && !isKnownLabel(cleaned[i + 1])) {
+            kv = {
+              key: shortenReceiptLabel(line.replace(/:$/, '')),
+              val: cleaned[i + 1].trim()
+            };
+            i++;
+          }
+        }
+
+        if (kv) {
+          inNarrativeBlock = false;
+          const kLower = kv.key.toLowerCase();
+          const vNorm = stripTrailingIconNoise(normalizeCurrencyDisplay(kv.val));
+
+          if (kLower === 'tanggal') {
+            if (/^\d{1,2}[:.]\d{2}$/.test(vNorm)) {
+              if (!detectedTimeOnly) detectedTimeOnly = vNorm.replace('.', ':');
+            } else if (!detectedDateOnly) {
+              detectedDateOnly = vNorm;
+            }
+          } else if (kLower === 'waktu') {
+            const tm = vNorm.match(/\b(\d{1,2}[:.]\d{2})\b/);
+            if (tm && !detectedTimeOnly) {
+              detectedTimeOnly = tm[1].replace('.', ':');
+            } else if (!detectedDateOnly && !/^\d{1,2}[:.]\d{2}$/.test(vNorm)) {
+              detectedDateOnly = vNorm;
+            }
+          } else if (kLower === 'metode' || kLower === 'sumber') {
+            detectedMethod = vNorm;
+          } else if (kLower === 'nama' || kLower === 'penerima') {
+            structuredRecipient = vNorm;
+          } else if (kLower === 'bank' || kLower === 'akun bank' || kLower === 'tujuan' || kLower === 'rekening') {
+            structuredBank = vNorm;
+          } else if (kLower === 'id trx' || kLower === 'no. ref' || kLower === 'no. trx') {
+            detectedTrxId = vNorm.replace(/\s+/g, '').replace(/[!|\]\[(){}.,…]+.*$/, '');
+          } else if (kLower === 'nominal' || kLower === 'jumlah' || kLower === 'tagihan') {
+            detectedAmount = vNorm;
+          } else if (kLower === 'admin') {
+            detectedAdmin = /^(gratis!?|free|-)$/i.test(vNorm) ? 'Rp 0' : vNorm;
+          } else if (kLower === 'total') {
+            detectedTotal = vNorm;
+          } else if (kLower === 'status' && /^(selesai|berhasil|sukses)$/i.test(vNorm)) {
+            // Status selesai sudah terwakili oleh judul BUKTI TRANSFER / BUKTI TRANSAKSI
+          } else {
+            extraDetails.push(`${kv.key}: ${vNorm}`);
+          }
+          continue;
+        }
+
+        // Abaikan lanjutan kalimat naratif di bagian atas kartu
+        if (inNarrativeBlock) {
+          continue;
+        }
+
+        const cleanExtra = stripTrailingIconNoise(normalizeCurrencyDisplay(line));
+        if (!cleanExtra) continue;
+
+        // Tangkap baris bank + rekening jika berdiri sendiri setelah blok transfer
+        if (!structuredBank && /^(bri|bca|bni|mandiri|bsi|btn|cimb|permata|danamon|seabank|jago|bank jago|neo|bnc|allo|ocbc|panin|mega|sinarmas|maybank|jenius|gopay|dana|ovo|shopeepay|linkaja)\b/i.test(cleanExtra) && isBankOrAccountLine(cleanExtra)) {
+          structuredBank = cleanExtra;
+          continue;
+        }
+
+        // Lewati potongan duplikat jika sudah masuk ke field terstruktur
+        if (structuredRecipient && structuredRecipient.toUpperCase().includes(cleanExtra.toUpperCase())) continue;
+        if (structuredBank && structuredBank.toUpperCase().includes(cleanExtra.toUpperCase())) continue;
+        if (fallbackRecipient && fallbackRecipient.toUpperCase().includes(cleanExtra.toUpperCase())) continue;
+        if (fallbackBank && fallbackBank.toUpperCase().includes(cleanExtra.toUpperCase())) continue;
+
+        extraDetails.push(cleanExtra);
+      }
+
+      const finalRecipient = structuredRecipient || fallbackRecipient;
+      const finalBank = structuredBank || fallbackBank;
+
+      // Susun urutan struk 58mm yang bersih dan terstandar
+      if (detectedDateOnly && detectedTimeOnly) {
+        structured.push(`Tanggal: ${detectedDateOnly} ${detectedTimeOnly}`);
+      } else if (detectedDateOnly) {
+        structured.push(`Tanggal: ${detectedDateOnly}`);
+      } else if (detectedTimeOnly) {
+        structured.push(`Waktu: ${detectedTimeOnly}`);
+      }
+      if (detectedTrxId) structured.push(`ID Trx: ${detectedTrxId}`);
+      if (detectedMethod) structured.push(`Metode: ${detectedMethod}`);
+
+      // Pastikan nama penerima tidak turun baris jika melebihi lebar 32 karakter
+      if (finalRecipient) {
+        const recipientLabel = ('Penerima'.length + 1 + finalRecipient.length <= width) ? 'Penerima' : 'Nama';
+        structured.push(`${recipientLabel}: ${finalRecipient}`);
+      }
+
+      // Pisahkan Bank dan Rekening jika kombinasi Tujuan melebihi lebar 32 karakter
+      if (finalBank) {
+        if ('Tujuan'.length + 1 + finalBank.length <= width) {
+          structured.push(`Tujuan: ${finalBank}`);
+        } else {
+          const bankSplitMatch = finalBank.match(/^(.+?)\s+([*\d•xX-]{4,})$/);
+          if (bankSplitMatch) {
+            structured.push(`Bank: ${bankSplitMatch[1].trim()}`);
+            structured.push(`Rekening: ${bankSplitMatch[2].trim()}`);
+          } else {
+            structured.push(`Tujuan: ${finalBank}`);
+          }
+        }
+      }
+
+      extraDetails.forEach(item => structured.push(item));
+
+      const finalNominal = detectedAmount || detectedTotal;
+      const finalAdmin = detectedAdmin || 'Rp 0';
+      const finalTotal = detectedTotal || detectedAmount;
+
+      if (finalNominal || finalTotal) {
+        structured.push('-'.repeat(width));
+        if (finalNominal) structured.push(`Nominal: ${finalNominal}`);
+        structured.push(`Admin: ${finalAdmin}`);
+        if (finalTotal) structured.push(`TOTAL: ${finalTotal}`);
+      } else {
+        structured.push('-'.repeat(width));
+      }
+
+      return normalizeScannedLines(structured, width);
+    }
+
+    function buildSpatialOcrText(ocrData, imgWidth) {
+      const lines = ocrData?.lines;
+      if (!Array.isArray(lines) || lines.length === 0 || !imgWidth) {
+        return ocrData?.text || '';
+      }
+
+      const knownLeftLabels = [
+        'metode pembayaran', 'nomor referensi', 'no. referensi', 'no referensi',
+        'tanggal transaksi', 'waktu transaksi', 'tgl transaksi',
+        'nominal transfer', 'jumlah transfer', 'total pembayaran', 'total transaksi',
+        'nomor rekening', 'no. rekening', 'rekening tujuan', 'rekening sumber',
+        'nomor tujuan', 'no. tujuan', 'nomor handphone', 'nomor telepon',
+        'nama pelanggan', 'nama penerima', 'nama merchant', 'bank penerima',
+        'jenis transaksi', 'tipe transaksi', 'biaya transaksi', 'biaya layanan',
+        'id transaksi', 'no. transaksi', 'nomor transaksi', 'kode transaksi',
+        'id pelanggan', 'nomor meter', 'no. meter', 'tarif/daya', 'tarif / daya',
+        'jumlah kwh', 'stand meter', 'sumber dana', 'bank tujuan', 'akun bank',
+        'metode bayar', 'biaya admin', 'total tagihan', 'total bayar', 'total harga',
+        'jumlah bayar', 'nilai transaksi', 'no. ref', 'no ref', 'referensi',
+        'no. hp', 'no hp', 'nomor hp', 'id pel', 'no meter', 'jml kwh',
+        'penerima', 'pengirim', 'merchant', 'layanan', 'produk', 'kategori',
+        'tanggal', 'waktu', 'tujuan', 'bank', 'nama', 'nominal', 'jumlah',
+        'tagihan', 'subtotal', 'harga', 'admin', 'biaya', 'ppn', 'materai',
+        'total', 'status', 'keterangan', 'catatan', 'berita'
+      ];
+
+      const startsWithKnownLabel = (txt) => {
+        const lower = txt.toLowerCase().replace(/:$/, '').trim();
+        return knownLeftLabels.some(lbl => lower === lbl || lower.startsWith(lbl + ' ') || lower.startsWith(lbl + ':'));
+      };
+
+      const entries = [];
+
+      for (const line of lines) {
+        const validWords = (line.words || []).filter(w => {
+          const t = (w.text || '').trim();
+          if (!t) return false;
+          // Buang ikon/simbol acak berkepercayaan rendah
+          if ((w.confidence || 0) < 35 && !/[a-zA-Z0-9]/.test(t)) return false;
+          return true;
+        });
+
+        if (validWords.length === 0) continue;
+
+        // Cari pemisahan kolom kiri-kanan berdasarkan celah horizontal antar kata
+        let splitIdx = -1;
+        for (let i = 0; i < validWords.length - 1; i++) {
+          const gap = validWords[i + 1].bbox.x0 - validWords[i].bbox.x1;
+          if (gap > imgWidth * 0.065 && validWords[i].bbox.x0 < imgWidth * 0.45 && validWords[i + 1].bbox.x1 > imgWidth * 0.55) {
+            splitIdx = i + 1;
+            break;
+          }
+        }
+
+        if (splitIdx > 0) {
+          const leftText = validWords.slice(0, splitIdx).map(w => w.text.trim()).join(' ').replace(/:$/, '').trim();
+          const rightText = validWords.slice(splitIdx).map(w => w.text.trim()).join(' ').trim();
+          entries.push({
+            type: 'pair',
+            label: leftText,
+            value: rightText,
+            y0: line.bbox.y0,
+            y1: line.bbox.y1
+          });
+        } else {
+          const fullLine = validWords.map(w => w.text.trim()).join(' ').trim();
+          const firstX0 = validWords[0].bbox.x0;
+          entries.push({
+            type: 'single',
+            text: fullLine,
+            x0: firstX0,
+            y0: line.bbox.y0,
+            y1: line.bbox.y1
+          });
+        }
+      }
+
+      // Gabungkan baris lanjutan di kolom kanan (seperti nama panjang 2 baris atau "(SmartPay)" di bawah "Saldo DANA")
+      const mergedEntries = [];
+      for (let i = 0; i < entries.length; i++) {
+        const cur = entries[i];
+        const prev = mergedEntries[mergedEntries.length - 1];
+
+        if (
+          cur.type === 'single' &&
+          prev &&
+          prev.type === 'pair' &&
+          !startsWithKnownLabel(cur.text) &&
+          cur.x0 > imgWidth * 0.36 &&
+          (cur.y0 - prev.y1) < imgWidth * 0.08
+        ) {
+          const prevWords = prev.value.split(' ');
+          const lastWord = prevWords[prevWords.length - 1] || '';
+          const shouldConcatWithoutSpace =
+            (/^[A-Z]{1,3}$/.test(lastWord) && /^[A-Z]{2,}$/.test(cur.text) && !['KE', 'DI', 'PT', 'CV', 'TB', 'UD', 'JL', 'NO'].includes(lastWord)) ||
+            (/\*{2,}\d+$/.test(prev.value) && /^\d+$/.test(cur.text));
+
+          prev.value = shouldConcatWithoutSpace
+            ? prev.value + cur.text
+            : prev.value + ' ' + cur.text;
+          prev.y1 = cur.y1;
+        } else {
+          mergedEntries.push(cur);
+        }
+      }
+
+      return mergedEntries
+        .map(e => (e.type === 'pair' ? `${e.label}: ${e.value}` : e.text))
+        .join('\n');
+    }
+
+    function preprocessImageForOcr(imageDataUrl) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          // Potong status bar atas HP (4.5%) dan gesture bar bawah (2.5%) agar ikon jam/baterai tidak ikut terbaca
+          const cropTop = Math.round(img.height * 0.045);
+          const cropBottom = Math.round(img.height * 0.025);
+          const srcH = Math.max(100, img.height - cropTop - cropBottom);
+          const srcW = img.width;
+
+          // Perbesar resolusi jika gambar terlalu kecil agar huruf tipis terbaca tajam
+          const scale = srcW < 1050 ? (1050 / srcW) : 1.0;
+          const w = Math.round(srcW * scale);
+          const h = Math.round(srcH * scale);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, cropTop, srcW, srcH, 0, 0, w, h);
+
+          // Tingkatkan kontras grayscale ringan agar teks abu-abu tipis terbaca jelas
+          const imgData = ctx.getImageData(0, 0, w, h);
+          const d = imgData.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+            const contrasted = Math.min(255, Math.max(0, (lum - 128) * 1.28 + 128));
+            d[i] = d[i + 1] = d[i + 2] = contrasted;
+          }
+          ctx.putImageData(imgData, 0, 0);
+          resolve({
+            dataUrl: canvas.toDataURL('image/png'),
+            width: w,
+            height: h
+          });
+        };
+        img.onerror = () => resolve({ dataUrl: imageDataUrl, width: 1000, height: 1800 });
+        img.src = imageDataUrl;
+      });
+    }
+
+    async function scanImageWithLocalTesseract(imageDataUrl) {
+      const loadingTitle = document.getElementById('scanLoadingTitle');
+      const loadingSubtext = document.getElementById('scanLoadingSubtext');
+      if (loadingTitle) loadingTitle.textContent = 'Memindai teks dengan OCR Lokal...';
+      if (loadingSubtext) loadingSubtext.textContent = 'Mempertajam teks & menata kolom 58mm';
+
+      if (typeof Tesseract === 'undefined') {
+        throw new Error('Library Tesseract OCR belum termuat.');
+      }
+
+      const processed = await preprocessImageForOcr(imageDataUrl);
+      const worker = await Tesseract.createWorker('ind+eng');
+      const ret = await worker.recognize(processed.dataUrl);
+      await worker.terminate();
+
+      const spatialText = buildSpatialOcrText(ret?.data, processed.width);
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      return parseRawOcrToReceiptLines(spatialText, width);
+    }
+
+    async function scanImageWithAI(base64Data, mimeType, forceLocalOcr = false) {
+      if (isScanningImage) return;
+      isScanningImage = true;
+
+      const overlay = document.getElementById('scanLoadingOverlay');
+      const statusLabel = document.getElementById('scanStatusLabel');
+      const scanTextarea = document.getElementById('scanExtractedText');
+      const loadingTitle = document.getElementById('scanLoadingTitle');
+      const loadingSubtext = document.getElementById('scanLoadingSubtext');
+
+      if (overlay) overlay.classList.remove('hidden');
+      if (loadingTitle) loadingTitle.textContent = 'Membaca & menata struk otomatis...';
+      if (loadingSubtext) loadingSubtext.textContent = 'Hasil akan langsung muncul di cetak struk';
+      if (statusLabel) {
+        statusLabel.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span><span>Memindai Gambar...</span>`;
+      }
+
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      let finalLines = null;
+      let usedEngine = 'AI Vision';
+
+      try {
+        if (!forceLocalOcr) {
+          const apiKey = (storeConfig.geminiApiKey || "").trim();
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+          const prompt = `Kamu adalah asisten pemformat struk thermal Bluetooth 58mm (maksimal ${width} karakter per baris).
+Baca screenshot bukti transaksi atau nota pada gambar ini, abaikan status bar HP (jam, baterai, sinyal), lalu susun ulang menjadi teks struk yang rapi, jelas, dan ringkas.
+
+Aturan format WAJIB:
+1. Gunakan tag [TENGAH][TEBAL] untuk judul transaksi di baris paling atas (contoh: [TENGAH][TEBAL]BUKTI TRANSFER atau [TENGAH][TEBAL]TOKEN PLN).
+2. Gunakan format "Label: Nilai" dengan label singkat agar muat 1 baris (Tanggal, ID Trx, Metode, Nama, Bank, Rekening, ID Pel, Nominal, Admin, TOTAL).
+3. Jika ada nomor token listrik 20 digit, tampilkan di baris tersendiri dengan [TENGAH][TEBAL].
+4. Gunakan garis pemisah ---------- sebelum dan sesudah rincian utama.
+5. Jangan tambahkan penjelasan pembuka/penutup atau markdown code block, langsung tulis isi struknya saja.`;
+
+          const payload = {
+            contents: [{
+              role: "user",
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType: mimeType || "image/jpeg",
+                    data: base64Data
+                  }
+                }
+              ]
+            }]
+          };
+
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+          const parts = result?.candidates?.[0]?.content?.parts || [];
+          const textPart = parts.find(p => typeof p.text === 'string' && p.text.trim().length > 0);
+
+          if (!textPart) {
+            throw new Error('Respons AI kosong');
+          }
+
+          const cleanedText = textPart.text
+            .replace(/```[a-z]*\n?/gi, '')
+            .replace(/```/g, '')
+            .trim();
+
+          finalLines = normalizeScannedLines(cleanedText.split('\n'), width);
+        }
+      } catch (err) {
+        // Fallback otomatis ke Tesseract OCR lokal jika API Key kosong/offline
+        usedEngine = 'OCR Lokal';
+        finalLines = null;
+      }
+
+      try {
+        if (!finalLines || finalLines.length === 0) {
+          usedEngine = 'OCR Lokal';
+          finalLines = await scanImageWithLocalTesseract(lastScannedImageDataUrl);
+        }
+
+        if (scanTextarea) {
+          scanTextarea.value = finalLines.join('\n');
+        }
+
+        // Deteksi otomatis Nominal & Biaya Admin
+        const detected = detectAmountsFromLines(finalLines);
+        const adminInput = document.getElementById('inputScanAdminFee');
+        const summaryEl = document.getElementById('scanAmountSummary');
+        if (adminInput) adminInput.value = detected.adminFee;
+        if (summaryEl) {
+          const tot = detected.totalAmount || (detected.baseAmount + detected.adminFee);
+          summaryEl.textContent = tot > 0
+            ? `Admin: ${formatRupiah(detected.adminFee)} | Total: ${formatRupiah(tot)}`
+            : `Admin: ${formatRupiah(detected.adminFee)}`;
+        }
+
+        receiptMode = 'custom';
+        renderPreview();
+
+        // Efek kilau hijau pada kertas pratinjau
+        const paperCard = document.getElementById('receiptPaperCard');
+        if (paperCard) {
+          paperCard.classList.add('highlight-flash');
+          setTimeout(() => paperCard.classList.remove('highlight-flash'), 900);
+          if (window.innerWidth < 1024) {
+            paperCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }
+
+        if (statusLabel) {
+          statusLabel.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span><span>Selesai (${usedEngine})</span>`;
+        }
+        showToast(`Foto berhasil dibaca & ditata (${usedEngine})!`, 'success');
+      } catch (finalErr) {
+        if (statusLabel) {
+          statusLabel.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span>Gagal Memindai</span>`;
+        }
+        showToast('Gagal membaca teks pada gambar. Coba gambar yang lebih jelas.', 'error');
+      } finally {
+        if (overlay) overlay.classList.add('hidden');
+        isScanningImage = false;
+      }
+    }
+
+    // =========================================================================
+    // TAB 3: PENGATURAN TOKO
+    // =========================================================================
+    function loadStoreConfig() {
+      try {
+        const saved = localStorage.getItem('cetak_struk_58mm_cfg_v1');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          storeConfig = { ...DEFAULT_CONFIG, ...parsed };
+        }
+      } catch (e) {
+        // Abaikan jika storage dibatasi di lingkungan sandbox
+      }
+
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      };
+
+      setVal('cfgStoreName', storeConfig.storeName);
+      setVal('cfgStoreAddress', storeConfig.storeAddress);
+      setVal('cfgStorePhone', storeConfig.storePhone);
+      setVal('cfgStoreFooter', storeConfig.storeFooter);
+      setVal('cfgCharWidth', String(storeConfig.charWidth));
+      setVal('cfgFeedLines', String(storeConfig.feedLines));
+      setVal('cfgGeminiApiKey', storeConfig.geminiApiKey || '');
+    }
+
+    function saveStoreConfig() {
+      const getVal = (id) => document.getElementById(id)?.value || '';
+      storeConfig.storeName = getVal('cfgStoreName');
+      storeConfig.storeAddress = getVal('cfgStoreAddress');
+      storeConfig.storePhone = getVal('cfgStorePhone');
+      storeConfig.storeFooter = getVal('cfgStoreFooter');
+      storeConfig.charWidth = parseInt(getVal('cfgCharWidth'), 10) || 32;
+      storeConfig.feedLines = parseInt(getVal('cfgFeedLines'), 10) || 3;
+      storeConfig.geminiApiKey = getVal('cfgGeminiApiKey').trim();
+
+      try {
+        localStorage.setItem('cetak_struk_58mm_cfg_v1', JSON.stringify(storeConfig));
+      } catch (e) {
+        // Abaikan jika storage dibatasi
+      }
+
+      updateDashboardStats();
+      renderPreview();
+    }
+
+    // =========================================================================
+    // PEMBANGUN BARIS STRUK & PRATINJAU KERTAS 58MM
+    // =========================================================================
+    function buildHeaderLines(width) {
+      const lines = [];
+      if (storeConfig.storeName.trim()) {
+        centerText(storeConfig.storeName.toUpperCase(), width).forEach(l => lines.push('[TEBAL]' + l));
+      }
+      if (storeConfig.storeAddress.trim()) {
+        storeConfig.storeAddress.split('\n').forEach(addrLine => {
+          centerText(addrLine, width).forEach(l => lines.push(l));
+        });
+      }
+      if (storeConfig.storePhone.trim()) {
+        centerText(storeConfig.storePhone, width).forEach(l => lines.push(l));
+      }
+      lines.push('='.repeat(width));
+      return lines;
+    }
+
+    function buildFooterLines(width) {
+      const lines = [];
+      if (storeConfig.storeFooter.trim()) {
+        lines.push('-'.repeat(width));
+        storeConfig.storeFooter.split('\n').forEach(fLine => {
+          centerText(fLine, width).forEach(l => lines.push(l));
+        });
+      }
+      return lines;
+    }
+
+    function buildReceiptLines() {
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      const lines = [];
+
+      if (receiptMode === 'custom') {
+        const includeHF = document.getElementById('chkIncludeHeaderFooterScan')?.checked ?? true;
+        const rawText = document.getElementById('scanExtractedText')?.value || '';
+
+        if (includeHF) {
+          lines.push(...buildHeaderLines(width));
+        }
+
+        if (!rawText.trim()) {
+          lines.push('');
+          centerText('Belum ada foto dipindai.', width).forEach(l => lines.push(l));
+          centerText('Unggah atau Ctrl+V gambar', width).forEach(l => lines.push(l));
+          centerText('pada tab 2. Scan Foto.', width).forEach(l => lines.push(l));
+          lines.push('');
+        } else {
+          const inputLines = rawText.replace(/\{WAKTU\}/g, getCurrentTimestamp()).split('\n');
+          inputLines.forEach(raw => {
+            let line = raw;
+            let isBold = false;
+            let isCenter = false;
+
+            if (line.includes('[TEBAL]')) {
+              isBold = true;
+              line = line.replace(/\[TEBAL\]/g, '');
+            }
+            if (line.includes('[TENGAH]')) {
+              isCenter = true;
+              line = line.replace(/\[TENGAH\]/g, '');
+            }
+
+            if (isCenter) {
+              centerText(line, width).forEach(l => lines.push((isBold ? '[TEBAL]' : '') + l));
+            } else {
+              wrapText(line, width).forEach(l => lines.push((isBold ? '[TEBAL]' : '') + l));
+            }
+          });
+        }
+
+        if (includeHF) {
+          const footerLines = buildFooterLines(width);
+          if (lines.length > 0 && /^[=-]{4,}$/.test(lines[lines.length - 1]) && footerLines[0] && /^-{4,}$/.test(footerLines[0])) {
+            footerLines.shift();
+          }
+          lines.push(...footerLines);
+        }
+        return lines;
+      }
+
+      // MODE KASIR
+      lines.push(...buildHeaderLines(width));
+
+      const noNota = document.getElementById('inputNoNota')?.value.trim() || 'TRX-001';
+      const pelanggan = document.getElementById('inputPelanggan')?.value.trim() || 'Umum';
+      const diskon = Math.max(0, Number(document.getElementById('inputDiskon')?.value) || 0);
+      const bayar = Math.max(0, Number(document.getElementById('inputBayar')?.value) || 0);
+
+      lines.push(...twoColumns('No. Nota', noNota, width));
+      lines.push(...twoColumns('Waktu', getCurrentTimestamp(), width));
+      lines.push(...twoColumns('Pelanggan', pelanggan, width));
+      lines.push('-'.repeat(width));
+
+      let subtotal = 0;
+      receiptItems.forEach(item => {
+        const itemTotal = (Number(item.qty) || 0) * (Number(item.price) || 0);
+        subtotal += itemTotal;
+        wrapText(item.name || 'Item', width).forEach(l => lines.push(l));
+        const qtyDetail = `  ${item.qty} x ${formatRupiah(item.price)}`;
+        lines.push(...twoColumns(qtyDetail, formatRupiah(itemTotal), width));
+      });
+
+      lines.push('-'.repeat(width));
+      lines.push(...twoColumns('Subtotal', formatRupiah(subtotal), width));
+      if (diskon > 0) {
+        lines.push(...twoColumns('Diskon', '-' + formatRupiah(diskon), width));
+      }
+
+      const grandTotal = Math.max(0, subtotal - diskon);
+      const kembali = Math.max(0, bayar - grandTotal);
+
+      lines.push('='.repeat(width));
+      lines.push(...twoColumns('TOTAL', formatRupiah(grandTotal), width).map(l => '[TEBAL]' + l));
+      lines.push('='.repeat(width));
+      lines.push(...twoColumns('Tunai', formatRupiah(bayar), width));
+      lines.push(...twoColumns('Kembali', formatRupiah(kembali), width));
+
+      lines.push(...buildFooterLines(width));
+      return lines;
+    }
+
+    function renderPreview() {
+      const previewArea = document.getElementById('receiptPreviewArea');
+      const modeBadge = document.getElementById('previewModeBadge');
+      if (!previewArea) return;
+
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      previewArea.style.width = `${width}ch`;
+
+      if (modeBadge) {
+        modeBadge.textContent = receiptMode === 'custom'
+          ? 'Pratinjau Kertas 58mm (Mode Scan Foto)'
+          : 'Pratinjau Kertas 58mm (Mode Kasir)';
+      }
+
+      const lines = buildReceiptLines();
+      const htmlLines = lines.map(line => {
+        if (line.startsWith('[TEBAL]')) {
+          const clean = escapeHtml(line.replace('[TEBAL]', ''));
+          return `<span class="font-bold text-slate-950">${clean || ' '}</span>`;
+        }
+        return escapeHtml(line || ' ');
+      });
+
+      previewArea.innerHTML = htmlLines.join('\n');
+    }
+
+    function getPlainReceiptText() {
+      return buildReceiptLines()
+        .map(l => l.replace(/\[TEBAL\]|\[TENGAH\]/g, ''))
+        .join('\n');
+    }
+
+    // =========================================================================
+    // KONEKSI & CETAK BLUETOOTH THERMAL 58MM (ESC/POS)
+    // =========================================================================
+    function updateBluetoothUI(connected, deviceName = '') {
+      const badge = document.getElementById('btStatusBadge');
+      const dot = document.getElementById('btStatusDot');
+      const text = document.getElementById('btStatusText');
+      const btn = document.getElementById('btnConnectBt');
+      const btnLabel = document.getElementById('btnConnectLabel');
+      const helpBox = document.getElementById('btHelpBox');
+
+      if (!badge || !dot || !text || !btn || !btnLabel) return;
+
+      if (connected) {
+        badge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200';
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+        text.textContent = deviceName || 'Printer Terhubung';
+        btn.className = 'px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2 cursor-pointer';
+        btnLabel.textContent = 'Putuskan';
+        if (helpBox) helpBox.classList.add('hidden');
+      } else {
+        badge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200';
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+        text.textContent = 'Belum Terhubung';
+        btn.className = 'px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2 cursor-pointer';
+        btnLabel.textContent = 'Hubungkan Printer';
+      }
+    }
+
+    function showBluetoothHelp(reasonText) {
+      const helpBox = document.getElementById('btHelpBox');
+      const reasonEl = document.getElementById('btHelpReason');
+      if (reasonEl) reasonEl.textContent = reasonText || '';
+      if (helpBox) helpBox.classList.remove('hidden');
+    }
+
+    async function toggleBluetoothConnection() {
+      if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) {
+        bluetoothDevice.gatt.disconnect();
+        bluetoothDevice = null;
+        printCharacteristic = null;
+        updateBluetoothUI(false);
+        showToast('Koneksi printer Bluetooth diputuskan.', 'info');
+        return;
+      }
+
+      if (!navigator.bluetooth) {
+        const isInFrame = window.self !== window.top;
+        const msg = isInFrame
+          ? 'Halaman berjalan di dalam frame (Google Sites) yang membatasi akses Bluetooth.'
+          : 'Browser/mode file ini tidak mendukung Web Bluetooth langsung.';
+        showBluetoothHelp(msg);
+        showToast('Web Bluetooth tidak tersedia di mode ini. Gunakan RawBT / Print Sistem.', 'error');
+        return;
+      }
+
+      try {
+        showToast('Mencari printer Bluetooth 58mm... Pastikan GPS & Printer aktif.', 'info');
+
+        // Daftar lengkap UUID GATT semua merek printer thermal 58mm (BLE)
+        const commonServices = [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+          '0000ff00-0000-1000-8000-00805f9b34fb',
+          '0000ffe0-0000-1000-8000-00805f9b34fb',
+          '0000fff0-0000-1000-8000-00805f9b34fb',
+          '0000fee7-0000-1000-8000-00805f9b34fb',
+          '0000ae30-0000-1000-8000-00805f9b34fb',
+          '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+        ];
+
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: commonServices
+        });
+
+        device.addEventListener('gattserverdisconnected', () => {
+          printCharacteristic = null;
+          updateBluetoothUI(false);
+          showToast('Printer Bluetooth terputus.', 'warning');
+        });
+
+        // Coba hubungkan GATT hingga 2 kali (beberapa printer perlu bangun dari mode hemat daya)
+        let server = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            server = await device.gatt.connect();
+            if (server && server.connected) break;
+          } catch (connErr) {
+            if (attempt === 2) throw connErr;
+            await new Promise(r => setTimeout(r, 450));
+          }
+        }
+
+        // Ambil semua service yang tersedia (gabungan discovery otomatis + daftar UUID umum)
+        let services = [];
+        try {
+          services = await server.getPrimaryServices();
+        } catch (svcErr) {
+          for (const uuid of commonServices) {
+            try {
+              const s = await server.getPrimaryService(uuid);
+              if (s) services.push(s);
+            } catch (_) {
+              // Lewati UUID yang tidak dimiliki printer ini
+            }
+          }
+        }
+
+        const preferredCharPrefixes = [
+          '00002af1',
+          '49535343-8841',
+          'bef8d6c9',
+          '0000ff02',
+          '0000ffe1',
+          '6e400002',
+          '0000fff2',
+          '0000ae01'
+        ];
+
+        let preferredChar = null;
+        let fallbackWritableChar = null;
+
+        for (const service of services) {
+          // Lewati service standar profil perangkat (0x1800 Generic Access, 0x1801 Generic Attribute, 0x180a Device Info)
+          if (service.uuid.startsWith('00001800') || service.uuid.startsWith('00001801') || service.uuid.startsWith('0000180a')) {
+            continue;
+          }
+
+          let chars = [];
+          try {
+            chars = await service.getCharacteristics();
+          } catch (_) {
+            continue;
+          }
+
+          for (const c of chars) {
+            if (c.properties.writeWithoutResponse || c.properties.write) {
+              const isPreferred = preferredCharPrefixes.some(prefix => c.uuid.toLowerCase().startsWith(prefix));
+              if (isPreferred && !preferredChar) {
+                preferredChar = c;
+              } else if (!fallbackWritableChar) {
+                fallbackWritableChar = c;
+              }
+            }
+          }
+        }
+
+        const foundChar = preferredChar || fallbackWritableChar;
+        if (!foundChar) {
+          throw new Error('Printer ini memakai Bluetooth Classic (SPP) atau port data BLE tidak ditemukan.');
+        }
+
+        bluetoothDevice = device;
+        printCharacteristic = foundChar;
+        updateBluetoothUI(true, device.name || 'Printer 58mm');
+        showToast(`Terhubung ke ${device.name || 'Printer Bluetooth'}!`, 'success');
+      } catch (err) {
+        if (err.name !== 'NotFoundError') {
+          let detail = err.message || 'Gagal menyambung ke perangkat.';
+          if (err.name === 'SecurityError' || /disallowed|policy/i.test(detail)) {
+            detail = 'Akses Bluetooth diblokir oleh frame/Google Sites. Buka langsung di tab Chrome utama atau gunakan tombol RawBT.';
+          } else if (/GATT|NetworkError|disconnected/i.test(detail)) {
+            detail = 'Koneksi GATT terputus. Pastikan printer tidak sedang terhubung ke aplikasi kasir lain di HP.';
+          }
+          showBluetoothHelp(detail);
+          showToast('Gagal menghubungkan printer: ' + detail, 'error');
+        }
+      }
+    }
+
+    function encodeAsciiBytes(text) {
+      const sanitized = String(text || '')
+        .replace(/[•●▪]/g, '*')
+        .replace(/[–—]/g, '-')
+        .replace(/[‘’]/g, "'")
+        .replace(/[“”]/g, '"');
+      const bytes = [];
+      for (let i = 0; i < sanitized.length; i++) {
+        const code = sanitized.charCodeAt(i);
+        bytes.push(code < 128 ? code : 63);
+      }
+      return bytes;
+    }
+
+    function buildEscPosBytes(lines) {
+      const feedLines = parseInt(storeConfig.feedLines, 10) || 3;
+      const buffer = [];
+
+      // ESC @ (Reset printer)
+      buffer.push(0x1B, 0x40);
+      // ESC M 0 (Font A standar 32 kolom untuk kertas 58mm)
+      buffer.push(0x1B, 0x4D, 0x00);
+      // ESC a 0 (Rata kiri default)
+      buffer.push(0x1B, 0x61, 0x00);
+
+      lines.forEach(rawLine => {
+        let line = rawLine;
+        const isBold = line.startsWith('[TEBAL]');
+        if (isBold) line = line.replace('[TEBAL]', '');
+
+        if (isBold) {
+          buffer.push(0x1B, 0x45, 0x01); // Bold ON
+        } else {
+          buffer.push(0x1B, 0x45, 0x00); // Bold OFF
+        }
+
+        buffer.push(...encodeAsciiBytes(line));
+        buffer.push(0x0A); // Line feed
+      });
+
+      buffer.push(0x1B, 0x45, 0x00);
+      for (let i = 0; i < feedLines; i++) {
+        buffer.push(0x0A);
+      }
+
+      return new Uint8Array(buffer);
+    }
+
+    async function sendBytesToPrinter(uint8Array) {
+      if (!printCharacteristic) {
+        showToast('Hubungkan printer Bluetooth terlebih dahulu!', 'warning');
+        await toggleBluetoothConnection();
+        if (!printCharacteristic) return false;
+      }
+
+      // Gunakan ukuran paket 20 byte (standar MTU BLE 4.0) agar kompatibel dengan semua printer 58mm
+      const chunkSize = 20;
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize);
+        if (printCharacteristic.properties.writeWithoutResponse) {
+          try {
+            await printCharacteristic.writeValueWithoutResponse(chunk);
+          } catch (_) {
+            await printCharacteristic.writeValue(chunk);
+          }
+        } else {
+          await printCharacteristic.writeValue(chunk);
+        }
+        await new Promise(r => setTimeout(r, 18));
+      }
+      return true;
+    }
+
+    function printViaRawBT() {
+      try {
+        saveCurrentReceiptToHistory(false);
+        const lines = buildReceiptLines();
+        const bytes = buildEscPosBytes(lines);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64EscPos = btoa(binary);
+        window.location.href = `rawbt:base64,${base64EscPos}`;
+        showToast('Mengirim struk ESC/POS ke aplikasi RawBT...', 'info');
+      } catch (err) {
+        showToast('Gagal membuka RawBT: ' + err.message, 'error');
+      }
+    }
+
+    function printViaBrowserDialog() {
+      saveCurrentReceiptToHistory(false);
+      renderPreview();
+      window.print();
+    }
+
+    async function printReceipt() {
+      try {
+        const lines = buildReceiptLines();
+        const bytes = buildEscPosBytes(lines);
+        const ok = await sendBytesToPrinter(bytes);
+        if (ok) {
+          saveCurrentReceiptToHistory(false);
+          showToast('Struk berhasil dikirim ke printer 58mm!', 'success');
+        }
+      } catch (err) {
+        showToast('Gagal mencetak struk: ' + err.message, 'error');
+      }
+    }
+
+    async function printTestPage() {
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      const testLines = [
+        '[TEBAL]' + centerText('TES PRINT 58MM BERHASIL', width)[0],
+        '='.repeat(width),
+        ...twoColumns('Lebar Kertas', `${width} Karakter`, width),
+        ...twoColumns('Status', 'OK / SIAP CETAK', width),
+        '-'.repeat(width),
+        '12345678901234567890123456789012'.slice(0, width),
+        '='.repeat(width)
+      ];
+      try {
+        const bytes = buildEscPosBytes(testLines);
+        const ok = await sendBytesToPrinter(bytes);
+        if (ok) {
+          showToast('Tes print berhasil dicetak!', 'success');
+        }
+      } catch (err) {
+        showToast('Gagal tes print: ' + err.message, 'error');
+      }
+    }
+
+    function copyReceiptText() {
+      const text = getPlainReceiptText();
+      const tempArea = document.createElement('textarea');
+      tempArea.value = text;
+      tempArea.style.position = 'fixed';
+      tempArea.style.opacity = '0';
+      document.body.appendChild(tempArea);
+      tempArea.select();
+      try {
+        document.execCommand('copy');
+        showToast('Teks struk berhasil disalin!', 'success');
+      } catch (err) {
+        showToast('Gagal menyalin teks struk.', 'error');
+      }
+      document.body.removeChild(tempArea);
+    }
+
+    // =========================================================================
+    // BAGIKAN KE WHATSAPP (TEKS MONOSPACE & GAMBAR PNG)
+    // =========================================================================
+    function shareReceiptToWhatsAppText() {
+      const plainText = getPlainReceiptText();
+      const formattedWaMessage = '```\n' + plainText + '\n```';
+      const waUrl = `https://wa.me/?text=${encodeURIComponent(formattedWaMessage)}`;
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      showToast('Membuka WhatsApp dengan format struk rapi...', 'success');
+    }
+
+    async function shareReceiptToWhatsAppImage() {
+      try {
+        const lines = buildReceiptLines();
+        const widthChars = parseInt(storeConfig.charWidth, 10) || 32;
+        const scale = 2;
+        const fontSize = 15;
+        const lineHeight = 22;
+        const paddingX = 24;
+        const paddingY = 28;
+
+        const canvasWidth = Math.max(340, widthChars * 9.5 + paddingX * 2);
+        const canvasHeight = lines.length * lineHeight + paddingY * 2;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasWidth * scale;
+        canvas.height = canvasHeight * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+
+        // Latar kertas putih bersih
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Border tipis tepi struk
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(4, 4, canvasWidth - 8, canvasHeight - 8);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.textBaseline = 'top';
+
+        lines.forEach((rawLine, idx) => {
+          let line = rawLine;
+          const isBold = line.startsWith('[TEBAL]');
+          if (isBold) line = line.replace('[TEBAL]', '');
+
+          ctx.font = `${isBold ? '700' : '400'} ${fontSize}px "JetBrains Mono", "Courier New", monospace`;
+          ctx.fillText(line, paddingX, paddingY + idx * lineHeight);
+        });
+
+        canvas.toBlob(async (blob) => {
+          if (!blob) {
+            showToast('Gagal membuat gambar struk.', 'error');
+            return;
+          }
+
+          const file = new File([blob], 'struk-58mm.png', { type: 'image/png' });
+
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({
+                files: [file],
+                title: 'Struk Transaksi 58mm',
+                text: 'Berikut bukti transaksi Anda.'
+              });
+              showToast('Struk siap dibagikan ke WhatsApp!', 'success');
+              return;
+            } catch (shareErr) {
+              if (shareErr.name === 'AbortError') return;
+            }
+          }
+
+          // Fallback unduh PNG jika dibuka di desktop browser
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'struk-58mm.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast('Gambar struk PNG diunduh! Silakan kirim ke WhatsApp.', 'success');
+        }, 'image/png');
+      } catch (err) {
+        showToast('Gagal menyiapkan gambar struk: ' + err.message, 'error');
+      }
+    }
+
+    // =========================================================================
+    // INISIALISASI APLIKASI
+    // =========================================================================
+    function initApp() {
+      try {
+        const now = new Date();
+        const autoNota = `TRX-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`;
+        const notaInput = document.getElementById('inputNoNota');
+        if (notaInput && !notaInput.value) {
+          notaInput.value = autoNota;
+        }
+
+        loadStoreConfig();
+        loadTransactionHistory();
+        renderItemInputs();
+        setupImagePasteAndDrop();
+        updateDashboardStats();
+        switchTab('dashboard');
+      } catch (err) {
+        console.error('Init error:', err);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+      initApp();
+    }
+  </script>
+</body>
+</html>
+```
