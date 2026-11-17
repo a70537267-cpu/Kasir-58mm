@@ -588,6 +588,30 @@
     </div>
   </main>
 
+  <!-- MODAL PRATINJAU & BAGIKAN GAMBAR STRUK (JIKA SHARE LANGSUNG TIDAK DIDUKUNG) -->
+  <div id="waImageModal" class="hidden fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-4 shadow-2xl space-y-3 border border-slate-200">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <h3 class="font-bold text-slate-900 text-sm">Gambar Struk Siap Kirim WA</h3>
+        <button type="button" onclick="closeWaImageModal()" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs flex items-center justify-center cursor-pointer">✕</button>
+      </div>
+      <p class="text-[11px] text-slate-600 leading-relaxed">
+        Tekan tombol <strong>Bagikan ke WhatsApp</strong> di bawah, atau <strong>tekan &amp; tahan gambar struk</strong> lalu pilih <em>Bagikan gambar</em>.
+      </p>
+      <div class="max-h-72 overflow-y-auto bg-slate-100 rounded-xl p-3 flex justify-center border border-slate-200">
+        <img id="waGeneratedImagePreview" alt="Gambar Struk 58mm" class="max-w-full h-auto shadow-md rounded-xs bg-white" />
+      </div>
+      <div class="grid grid-cols-2 gap-2 pt-1">
+        <button type="button" id="btnRetryNativeShare" onclick="triggerNativeShareFromModal()" class="py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#1fb858] text-white font-bold text-xs shadow-xs transition cursor-pointer">
+          Bagikan ke WA
+        </button>
+        <a id="btnDownloadWaImage" download="struk-58mm.png" href="#" class="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs text-center shadow-xs transition">
+          Unduh PNG
+        </a>
+      </div>
+    </div>
+  </div>
+
   <!-- MENU NAVIGASI BAWAH (BOTTOM NAVIGATION BAR) -->
   <nav aria-label="Menu Utama Bawah" class="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] bottom-nav-safe">
     <div class="max-w-xl mx-auto grid grid-cols-5 h-16">
@@ -677,6 +701,7 @@
     let useRawBtMode = false;
     let lastScannedImageDataUrl = null;
     let scanBaseNominal = 0;
+    let lastGeneratedReceiptFile = null;
 
     // =========================================================================
     // UTILITAS PENYIMPANAN & FORMAT TEKS 58MM
@@ -2253,6 +2278,7 @@ Aturan ketat:
         let line = rawLine;
         const isBold = line.startsWith('[TEBAL]');
         if (isBold) line = line.replace('[TEBAL]', '');
+        line = line.replace(/\[TENGAH\]/g, '');
 
         if (isBold) {
           buffer.push(0x1B, 0x45, 0x01); // Bold ON
@@ -2397,76 +2423,117 @@ Aturan ketat:
       showToast('Membuka WhatsApp dengan format struk rapi...', 'success');
     }
 
+    function generateReceiptPngData() {
+      const lines = buildReceiptLines();
+      const widthChars = parseInt(storeConfig.charWidth, 10) || 32;
+      const scale = 2;
+      const fontSize = 15;
+      const lineHeight = 23;
+      const paddingX = 24;
+      const paddingY = 28;
+
+      const measureCanvas = document.createElement('canvas');
+      const measureCtx = measureCanvas.getContext('2d');
+      measureCtx.font = `700 ${fontSize}px "JetBrains Mono", "Courier New", monospace`;
+      const measuredTextW = measureCtx.measureText('0'.repeat(widthChars)).width;
+
+      const canvasWidth = Math.ceil(measuredTextW + paddingX * 2);
+      const canvasHeight = Math.ceil(lines.length * lineHeight + paddingY * 2);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth * scale;
+      canvas.height = canvasHeight * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+
+      // Latar putih kertas struk
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // Bingkai tipis kertas struk
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(4, 4, canvasWidth - 8, canvasHeight - 8);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.textBaseline = 'top';
+
+      lines.forEach((rawLine, idx) => {
+        const isBold = rawLine.startsWith('[TEBAL]');
+        const cleanLine = rawLine.replace(/\[TEBAL\]|\[TENGAH\]/g, '');
+        ctx.font = `${isBold ? '700' : '400'} ${fontSize}px "JetBrains Mono", "Courier New", monospace`;
+        ctx.fillText(cleanLine, paddingX, paddingY + idx * lineHeight);
+      });
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const byteString = atob(dataUrl.split(',')[1]);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: 'image/png' });
+      const file = new File([blob], `struk-58mm-${Date.now()}.png`, { type: 'image/png' });
+
+      return { dataUrl, blob, file };
+    }
+
+    function openWaImageModal(dataUrl, file) {
+      lastGeneratedReceiptFile = file;
+      const modal = document.getElementById('waImageModal');
+      const imgEl = document.getElementById('waGeneratedImagePreview');
+      const dlBtn = document.getElementById('btnDownloadWaImage');
+      if (imgEl) imgEl.src = dataUrl;
+      if (dlBtn) {
+        dlBtn.href = dataUrl;
+        dlBtn.download = file.name;
+      }
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeWaImageModal() {
+      const modal = document.getElementById('waImageModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function triggerNativeShareFromModal() {
+      if (!lastGeneratedReceiptFile) return;
+      if (navigator.share) {
+        try {
+          await navigator.share({ files: [lastGeneratedReceiptFile] });
+          closeWaImageModal();
+          showToast('Gambar struk siap dikirim ke WhatsApp!', 'success');
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+        }
+      }
+      showToast('Tekan & tahan gambar di atas, lalu pilih Bagikan gambar ke WhatsApp.', 'info');
+    }
+
     async function shareReceiptToWhatsAppImage() {
       try {
-        const lines = buildReceiptLines();
-        const widthChars = parseInt(storeConfig.charWidth, 10) || 32;
-        const scale = 2;
-        const fontSize = 15;
-        const lineHeight = 22;
-        const paddingX = 24;
-        const paddingY = 28;
+        // Dibuat sinkron agar izin gesture klik dari Chrome langsung diterima oleh navigator.share
+        const { dataUrl, file } = generateReceiptPngData();
 
-        const canvasWidth = Math.max(340, widthChars * 9.5 + paddingX * 2);
-        const canvasHeight = lines.length * lineHeight + paddingY * 2;
+        const canShareFiles = typeof navigator.share === 'function' &&
+          (typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] }));
 
-        const canvas = document.createElement('canvas');
-        canvas.width = canvasWidth * scale;
-        canvas.height = canvasHeight * scale;
-        const ctx = canvas.getContext('2d');
-        ctx.scale(scale, scale);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(4, 4, canvasWidth - 8, canvasHeight - 8);
-
-        ctx.fillStyle = '#0f172a';
-        ctx.textBaseline = 'top';
-
-        lines.forEach((rawLine, idx) => {
-          let line = rawLine;
-          const isBold = line.startsWith('[TEBAL]');
-          if (isBold) line = line.replace('[TEBAL]', '');
-
-          ctx.font = `${isBold ? '700' : '400'} ${fontSize}px "JetBrains Mono", "Courier New", monospace`;
-          ctx.fillText(line, paddingX, paddingY + idx * lineHeight);
-        });
-
-        canvas.toBlob(async (blob) => {
-          if (!blob) {
-            showToast('Gagal membuat gambar struk.', 'error');
+        if (canShareFiles) {
+          try {
+            await navigator.share({
+              files: [file]
+            });
+            showToast('Gambar struk siap dikirim ke WhatsApp!', 'success');
             return;
+          } catch (shareErr) {
+            if (shareErr.name === 'AbortError') return;
           }
+        }
 
-          const file = new File([blob], 'struk-58mm.png', { type: 'image/png' });
-
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            try {
-              await navigator.share({
-                files: [file],
-                title: 'Struk Transaksi 58mm',
-                text: 'Berikut bukti transaksi Anda.'
-              });
-              showToast('Struk siap dibagikan ke WhatsApp!', 'success');
-              return;
-            } catch (shareErr) {
-              if (shareErr.name === 'AbortError') return;
-            }
-          }
-
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'struk-58mm.png';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          showToast('Gambar struk PNG diunduh! Silakan kirim ke WhatsApp.', 'success');
-        }, 'image/png');
+        // Fallback jika dibuka di dalam iframe / browser yang membatasi Share Sheet file
+        openWaImageModal(dataUrl, file);
+        showToast('Gambar struk siap! Pilih Bagikan ke WA atau tekan & tahan gambar.', 'info');
       } catch (err) {
         showToast('Gagal menyiapkan gambar struk: ' + err.message, 'error');
       }
