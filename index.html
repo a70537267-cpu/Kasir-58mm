@@ -129,7 +129,11 @@
         </div>
         <div>
           <h1 class="font-bold text-slate-900 text-base sm:text-lg leading-tight">CetakStruk 58mm</h1>
-          <p class="text-xs text-slate-500">Bluetooth Thermal POS &amp; Auto-Format Struk</p>
+          <div class="flex flex-wrap items-center gap-1.5 mt-0.5">
+            <span id="liveHeaderClock" class="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200/80 px-2 py-0.5 rounded-md font-mono">
+              Memuat waktu...
+            </span>
+          </div>
         </div>
       </div>
 
@@ -199,6 +203,7 @@
           <div class="min-w-0 flex-1">
             <h2 id="dashStoreName" class="font-extrabold text-slate-900 text-base sm:text-lg truncate">WARUNG KOPI NUSANTARA</h2>
             <p id="dashStoreAddress" class="text-xs text-slate-500 truncate">Jl. Slamet Riyadi No. 123</p>
+            <p id="dashLiveClock" class="text-[11px] font-semibold text-sky-700 mt-0.5 font-mono">--/--/---- --:--:--</p>
           </div>
           <button type="button" onclick="switchTab('toko')" class="text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1.5 rounded-xl transition shrink-0 cursor-pointer">
             Ubah
@@ -281,6 +286,21 @@
             <label for="inputPelanggan" class="block text-xs font-semibold text-slate-600 mb-1">Nama Pelanggan / Kasir</label>
             <input type="text" id="inputPelanggan" placeholder="Umum / Kasir 1" oninput="setKasirModeAndRender()" class="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+        </div>
+
+        <!-- Pengaturan Tanggal & Waktu Transaksi -->
+        <div class="bg-slate-50/90 border border-slate-200/80 rounded-xl p-3 space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <label for="inputWaktuTransaksi" class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <span>Tanggal &amp; Waktu Struk</span>
+              <span id="kasirTimeModeBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Otomatis</span>
+            </label>
+            <button type="button" onclick="resetKasirTimeToNow()" class="text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition cursor-pointer">
+              Waktu Sekarang
+            </button>
+          </div>
+          <input type="datetime-local" id="inputWaktuTransaksi" step="1" onchange="onManualKasirTimeChange()" oninput="onManualKasirTimeChange()"
+            class="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
 
         <div>
@@ -405,7 +425,10 @@
               <label for="scanExtractedText" class="text-xs font-bold text-slate-700">
                 Hasil Teks Foto (Otomatis Tertata 58mm):
               </label>
-              <div class="flex items-center gap-2.5">
+              <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="insertCurrentTimeToScan()" class="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md transition cursor-pointer">
+                  + Waktu Sekarang
+                </button>
                 <button type="button" onclick="reformatScanTextarea()" class="text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md transition cursor-pointer">
                   Rapikan Format
                 </button>
@@ -702,6 +725,129 @@
     let lastScannedImageDataUrl = null;
     let scanBaseNominal = 0;
     let lastGeneratedReceiptFile = null;
+    let autoLiveKasirTime = true;
+    let liveClockTimer = null;
+
+    // =========================================================================
+    // JAM & WAKTU REAL-TIME
+    // =========================================================================
+    const NAMA_HARI_ID = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const NAMA_BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+    function formatDateTimeLocalInput(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const mm = String(dateObj.getMinutes()).padStart(2, '0');
+      const ss = String(dateObj.getSeconds()).padStart(2, '0');
+      return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+    }
+
+    function getActiveKasirDateObject() {
+      const inputEl = document.getElementById('inputWaktuTransaksi');
+      if (!autoLiveKasirTime && inputEl && inputEl.value) {
+        const parsed = new Date(inputEl.value);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+      return new Date();
+    }
+
+    function updateLiveClock() {
+      const now = new Date();
+      const hari = NAMA_HARI_ID[now.getDay()];
+      const tgl = String(now.getDate()).padStart(2, '0');
+      const bln = NAMA_BULAN_ID[now.getMonth()];
+      const thn = now.getFullYear();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+
+      const headerClock = document.getElementById('liveHeaderClock');
+      if (headerClock) {
+        headerClock.textContent = `${hari}, ${tgl} ${bln} ${thn} • ${hh}:${mm}:${ss}`;
+      }
+
+      const dashClock = document.getElementById('dashLiveClock');
+      if (dashClock) {
+        dashClock.textContent = `${hari}, ${tgl} ${bln} ${thn} • ${hh}:${mm}:${ss}`;
+      }
+
+      if (autoLiveKasirTime) {
+        const kasirInput = document.getElementById('inputWaktuTransaksi');
+        if (kasirInput && document.activeElement !== kasirInput) {
+          kasirInput.value = formatDateTimeLocalInput(now);
+        }
+        if (receiptMode === 'kasir') {
+          renderPreview(false);
+        }
+      }
+    }
+
+    function onManualKasirTimeChange() {
+      autoLiveKasirTime = false;
+      const badge = document.getElementById('kasirTimeModeBadge');
+      if (badge) {
+        badge.textContent = 'Manual';
+        badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800';
+      }
+      receiptMode = 'kasir';
+      renderPreview();
+    }
+
+    function resetKasirTimeToNow() {
+      autoLiveKasirTime = true;
+      const badge = document.getElementById('kasirTimeModeBadge');
+      if (badge) {
+        badge.textContent = 'Otomatis';
+        badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+      }
+      const now = new Date();
+      const kasirInput = document.getElementById('inputWaktuTransaksi');
+      if (kasirInput) {
+        kasirInput.value = formatDateTimeLocalInput(now);
+      }
+      receiptMode = 'kasir';
+      renderPreview();
+      showToast('Waktu struk disinkronkan ke waktu sekarang.', 'success');
+    }
+
+    function insertCurrentTimeToScan() {
+      const textarea = document.getElementById('scanExtractedText');
+      if (!textarea) return;
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const width = parseInt(storeConfig.charWidth, 10) || 32;
+      const timeLine = twoColumns('Waktu', timeStr, width)[0];
+
+      const lines = textarea.value ? textarea.value.split('\n') : [];
+      let replaced = false;
+      const updated = lines.map(line => {
+        const clean = line.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim();
+        if (/^Waktu\b/i.test(clean)) {
+          replaced = true;
+          return timeLine;
+        }
+        return line;
+      });
+
+      if (!replaced) {
+        const tglIdx = updated.findIndex(l => /^Tanggal\b/i.test(l.replace(/\[TEBAL\]|\[TENGAH\]/g, '').trim()));
+        if (tglIdx >= 0) {
+          updated.splice(tglIdx + 1, 0, timeLine);
+        } else {
+          updated.unshift(timeLine);
+        }
+      }
+
+      textarea.value = updated.join('\n');
+      receiptMode = 'custom';
+      renderPreview(true);
+      showToast(`Waktu ${timeStr} ditambahkan ke struk!`, 'success');
+    }
 
     // =========================================================================
     // UTILITAS PENYIMPANAN & FORMAT TEKS 58MM
@@ -1204,8 +1350,9 @@
 
       const prompt = `Ekstrak data penting dari bukti transaksi/struk ini untuk dicetak di printer thermal 58mm (lebar ${width} karakter).
 Aturan ketat:
-- Jangan sertakan jam HP, baterai, ikon aplikasi, tombol Bagikan/Selesai/Chat CS/Transfer lagi.
-- Format setiap baris menjadi pasangan "Label: Nilai" (contoh: Judul: BUKTI TRANSFER, Tanggal: 15 Nov 2026 11:31, ID Trx: ..., Metode: ..., Penerima: ..., Tujuan: ..., Nominal: Rp ..., Admin: Rp ..., TOTAL: Rp ...).
+- Jangan sertakan jam status bar HP, baterai, ikon aplikasi, tombol Bagikan/Selesai/Chat CS/Transfer lagi.
+- Pisahkan baris Tanggal dan Waktu menjadi "Tanggal: ..." dan "Waktu: ...".
+- Format setiap baris menjadi pasangan "Label: Nilai" (contoh: Judul: BUKTI TRANSFER, Tanggal: 15 Nov 2026, Waktu: 11:31, ID Trx: ..., Metode: ..., Penerima: ..., Tujuan: ..., Nominal: Rp ..., Admin: Rp ..., TOTAL: Rp ...).
 - Jika Token Listrik PLN 20 digit, tulis baris "TOKEN LISTRIK:" diikuti angka 20 digit dikelompokkan 4-4-4-4-4.
 - Hanya keluarkan teks struk bersih tanpa markdown.`;
 
@@ -1344,8 +1491,18 @@ Aturan ketat:
 
         if (line.includes('  |  ')) {
           const [leftPart, rightPart] = line.split('  |  ').map(s => s.trim());
-          if (/tanggal|waktu/i.test(leftPart)) {
-            data.date = rightPart;
+          if (/tanggal/i.test(leftPart)) {
+            const dtSplit = rightPart.match(/^(.+?)\s+(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)$/);
+            if (dtSplit) {
+              data.date = dtSplit[1].trim();
+              data.time = dtSplit[2].replace(/\./g, ':');
+            } else {
+              data.date = rightPart;
+            }
+            continue;
+          }
+          if (/waktu|jam/i.test(leftPart)) {
+            data.time = rightPart.replace(/\./g, ':');
             continue;
           }
           if (/id\s*(trx|transaksi|referensi|ref)/i.test(leftPart)) {
@@ -1376,8 +1533,8 @@ Aturan ketat:
           if (dateMatch[2]) data.time = dateMatch[2].replace('.', ':');
           continue;
         }
-        if (/^tanggal\s*:?\s*(\d{1,2}[:.]\d{2})$/i.test(line)) {
-          data.time = line.replace(/^tanggal\s*:?\s*/i, '').replace('.', ':');
+        if (/^(?:tanggal|waktu)\s*:?\s*(\d{1,2}[:.]\d{2})$/i.test(line)) {
+          data.time = line.replace(/^(?:tanggal|waktu)\s*:?\s*/i, '').replace('.', ':');
           continue;
         }
         if (/^\d{1,2}[:.]\d{2}$/.test(line) && !data.time) {
@@ -1488,12 +1645,18 @@ Aturan ketat:
         data.total = data.nominal + data.admin;
       }
 
+      // Jika waktu tidak terdeteksi di screenshot, gunakan jam sekarang sebagai default
+      if (!data.time) {
+        const now = new Date();
+        data.time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      }
+
       const out = [];
       out.push(`[TENGAH][TEBAL]${data.title}`);
       out.push('-'.repeat(width));
 
-      const dateDisplay = [data.date, data.time].filter(Boolean).join(' ');
-      if (dateDisplay) out.push(`Tanggal: ${dateDisplay}`);
+      if (data.date) out.push(`Tanggal: ${data.date}`);
+      if (data.time) out.push(`Waktu: ${data.time}`);
       if (data.trxId) out.push(`ID Trx: ${data.trxId}`);
       if (data.method) out.push(`Metode: ${data.method}`);
 
@@ -1765,13 +1928,15 @@ Aturan ketat:
 
       // MODE KASIR
       const lines = [...buildStoreHeaderLines(width)];
-      const now = new Date();
-      const tgl = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const now = getActiveKasirDateObject();
+      const tgl = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+      const waktu = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
       const noNota = (document.getElementById('inputNoNota')?.value || 'TRX-001').trim();
       const pelanggan = (document.getElementById('inputPelanggan')?.value || 'Umum').trim();
 
       lines.push(...twoColumns('No. Nota', noNota, width));
       lines.push(...twoColumns('Tanggal', tgl, width));
+      lines.push(...twoColumns('Waktu', waktu, width));
       lines.push(...twoColumns('Pelanggan', pelanggan, width));
       lines.push('-'.repeat(width));
 
@@ -1934,7 +2099,7 @@ Aturan ketat:
 
       container.innerHTML = transactionHistory.map(trx => {
         const d = new Date(trx.timestamp);
-        const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
         return `
           <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
             <div class="min-w-0">
@@ -2551,6 +2716,11 @@ Aturan ketat:
           notaInput.value = autoNota;
         }
 
+        const waktuInput = document.getElementById('inputWaktuTransaksi');
+        if (waktuInput && !waktuInput.value) {
+          waktuInput.value = formatDateTimeLocalInput(now);
+        }
+
         loadStoreConfig();
         loadTransactionHistory();
         if (safeStorageGet(STORAGE_KEY_RAWBT) === '1') {
@@ -2560,6 +2730,10 @@ Aturan ketat:
         renderItemInputs();
         setupImagePasteAndDrop();
         updateDashboardStats();
+        updateLiveClock();
+        if (!liveClockTimer) {
+          liveClockTimer = setInterval(updateLiveClock, 1000);
+        }
         switchTab('dashboard');
       } catch (err) {
         console.error('Init error:', err);
