@@ -873,7 +873,11 @@
 
     function parseNominalNumber(str) {
       if (typeof str === 'number') return Math.round(str);
-      const cleaned = String(str || '').replace(/[^\d]/g, '');
+      let s = String(str || '').trim();
+      if (!s) return 0;
+      // Hapus akhiran desimal sen khas BCA/perbankan seperti ,00 atau .00 atau ,-
+      s = s.replace(/([,.]\d{2}|,-)\s*$/, '');
+      const cleaned = s.replace(/[^\d]/g, '');
       return cleaned ? parseInt(cleaned, 10) : 0;
     }
 
@@ -1310,12 +1314,12 @@
       return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
-          const cropTop = Math.round(img.height * 0.045);
-          const cropBottom = Math.round(img.height * 0.025);
+          const cropTop = Math.round(img.height * 0.04);
+          const cropBottom = Math.round(img.height * 0.02);
           const srcH = Math.max(100, img.height - cropTop - cropBottom);
           const srcW = img.width;
 
-          const scale = srcW < 900 ? 2 : 1.5;
+          const scale = srcW < 950 ? 2 : 1.5;
           const dstW = Math.round(srcW * scale);
           const dstH = Math.round(srcH * scale);
 
@@ -1329,9 +1333,20 @@
 
           const imgData = ctx.getImageData(0, 0, dstW, dstH);
           const data = imgData.data;
+
+          // Deteksi screenshot mode gelap (Dark Mode myBCA / m-BCA)
+          let lumaSum = 0;
+          let sampleCount = 0;
+          for (let i = 0; i < data.length; i += 16) {
+            lumaSum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            sampleCount++;
+          }
+          const isDarkBg = sampleCount > 0 && (lumaSum / sampleCount) < 110;
+
           for (let i = 0; i < data.length; i += 4) {
-            const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-            const contrasted = Math.min(255, Math.max(0, (gray - 128) * 1.35 + 135));
+            let gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            if (isDarkBg) gray = 255 - gray;
+            const contrasted = Math.min(255, Math.max(0, (gray - 128) * 1.38 + 138));
             data[i] = contrasted;
             data[i + 1] = contrasted;
             data[i + 2] = contrasted;
@@ -1348,11 +1363,11 @@
       const base64Data = jpegDataUrl.split(',')[1];
       const width = parseInt(storeConfig.charWidth, 10) || 32;
 
-      const prompt = `Ekstrak data penting dari bukti transaksi/struk ini untuk dicetak di printer thermal 58mm (lebar ${width} karakter).
+      const prompt = `Ekstrak data penting dari bukti transaksi/struk ini (termasuk Bank BCA m-Transfer/myBCA, BRI, Mandiri, BNI, DANA, GoPay, OVO, QRIS, PLN) untuk dicetak di printer thermal 58mm (lebar ${width} karakter).
 Aturan ketat:
-- Jangan sertakan jam status bar HP, baterai, ikon aplikasi, tombol Bagikan/Selesai/Chat CS/Transfer lagi.
+- Jangan sertakan jam status bar HP, baterai, ikon aplikasi, tombol Bagikan/Selesai/Chat CS/Transfer lagi/OK.
 - Pisahkan baris Tanggal dan Waktu menjadi "Tanggal: ..." dan "Waktu: ...".
-- Format setiap baris menjadi pasangan "Label: Nilai" (contoh: Judul: BUKTI TRANSFER, Tanggal: 15 Nov 2026, Waktu: 11:31, ID Trx: ..., Metode: ..., Penerima: ..., Tujuan: ..., Nominal: Rp ..., Admin: Rp ..., TOTAL: Rp ...).
+- Format setiap baris menjadi pasangan "Label: Nilai" (contoh: Judul: BUKTI TRANSFER BCA, Tanggal: 19/11/2026, Waktu: 21:13:05, No. Ref: ..., Metode: ..., Penerima: ..., Tujuan: ..., Berita: ..., Nominal: Rp ..., Admin: Rp ..., TOTAL: Rp ...).
 - Jika Token Listrik PLN 20 digit, tulis baris "TOKEN LISTRIK:" diikuti angka 20 digit dikelompokkan 4-4-4-4-4.
 - Hanya keluarkan teks struk bersih tanpa markdown.`;
 
@@ -1447,7 +1462,7 @@ Aturan ketat:
 
     function parseRawOcrToReceiptLines(rawText) {
       const width = parseInt(storeConfig.charWidth, 10) || 32;
-      const noiseRegex = /(detail transaksi|bagikan|selesai|kembali|unduh|simpan|chat\s*dengan\s*cs|butuh bantuan|transfer lagi|split\s*-\s*atur|bagi bukti|harga tercantum|sudah termasuk ppn|bisa dapet|cashback|drarbpulsa|id dana\s*\d)/i;
+      const noiseRegex = /(detail transaksi|bagikan|selesai|kembali|unduh|simpan|chat\s*dengan\s*cs|butuh bantuan|transfer lagi|transaksi lainnya|split\s*-\s*atur|bagi bukti|harga tercantum|sudah termasuk ppn|bisa dapet|cashback|drarbpulsa|id dana\s*\d)/i;
 
       const rawLines = String(rawText || '')
         .split('\n')
@@ -1457,25 +1472,31 @@ Aturan ketat:
         .filter(l => {
           if (!l || l.length < 2) return false;
           if (noiseRegex.test(l)) return false;
+          if (/^(?:m-?transfer|berhasil|transaksi berhasil|transfer berhasil|ok|wib|wita|wit)$/i.test(l)) return false;
           if (/^[\[\](){}<>|:;.,\-_=+~`!@#$%^&*\\/?0-9\s]{1,5}$/.test(l) && !/^\d{4}$/.test(l)) return false;
           return true;
         });
 
+      const fullJoined = rawLines.join(' ');
+      const isBcaReceipt = /(?:m-?transfer|mybca|tahapan\s*bca|klikbca|\bbca\b|bi-?fast)/i.test(fullJoined);
+
       const data = {
-        title: 'BUKTI TRANSFER',
+        title: isBcaReceipt ? 'BUKTI TRANSFER BCA' : 'BUKTI TRANSFER',
         date: '',
         time: '',
         trxId: '',
         method: '',
         recipient: '',
+        bankName: '',
+        destAccount: '',
         destination: '',
+        note: '',
         nominal: 0,
         admin: 0,
         total: 0,
         tokenPln: ''
       };
 
-      const fullJoined = rawLines.join(' ');
       const tokenMatch = fullJoined.match(/(?:token|stroom)[^\d]{0,20}((?:\d[\s-]?){20})/i);
       if (tokenMatch) {
         const digits = tokenMatch[1].replace(/\D/g, '');
@@ -1489,10 +1510,17 @@ Aturan ketat:
         let line = rawLines[i];
         const nextLine = rawLines[i + 1] || '';
 
+        // Lewati blok "Sumber Dana" pada myBCA agar rekening pengirim tidak tertukar dengan tujuan
+        if (/^sumber\s+dana\s*:?$/i.test(line)) {
+          if (nextLine && /tahapan|bca|tabungan|\d{6,}/i.test(nextLine)) i++;
+          if (rawLines[i + 1] && /^[A-Z\s]{3,}$/.test(rawLines[i + 1]) && !/tujuan|penerima|nominal|total/i.test(rawLines[i + 1])) i++;
+          continue;
+        }
+
         if (line.includes('  |  ')) {
           const [leftPart, rightPart] = line.split('  |  ').map(s => s.trim());
           if (/tanggal/i.test(leftPart)) {
-            const dtSplit = rightPart.match(/^(.+?)\s+(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)$/);
+            const dtSplit = rightPart.match(/^(.+?)\s+(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)/);
             if (dtSplit) {
               data.date = dtSplit[1].trim();
               data.time = dtSplit[2].replace(/\./g, ':');
@@ -1502,15 +1530,23 @@ Aturan ketat:
             continue;
           }
           if (/waktu|jam/i.test(leftPart)) {
-            data.time = rightPart.replace(/\./g, ':');
+            data.time = rightPart.replace(/\./g, ':').replace(/\s*wi[bt]a?$/i, '');
             continue;
           }
-          if (/id\s*(trx|transaksi|referensi|ref)/i.test(leftPart)) {
+          if (/(?:id\s*(?:trx|transaksi|referensi|ref)|no\.?\s*ref(?:erensi)?|nomor\s+referensi)/i.test(leftPart)) {
             data.trxId = rightPart.replace(/[^A-Za-z0-9]/g, '');
             continue;
           }
-          if (/metode/i.test(leftPart)) {
+          if (/metode|jenis\s+transfer|layanan\s+transfer/i.test(leftPart)) {
             data.method = rightPart;
+            continue;
+          }
+          if (/bank\s*tujuan/i.test(leftPart)) {
+            data.bankName = rightPart;
+            continue;
+          }
+          if (/berita|catatan|keterangan/i.test(leftPart)) {
+            if (rightPart !== '-') data.note = rightPart;
             continue;
           }
           if (/nominal|jumlah/i.test(leftPart)) {
@@ -1527,33 +1563,48 @@ Aturan ketat:
           }
         }
 
-        const dateMatch = line.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s+\d{4})(?:\s+(\d{1,2}[:.]\d{2}))?/i);
-        if (dateMatch) {
-          data.date = dateMatch[1];
-          if (dateMatch[2]) data.time = dateMatch[2].replace('.', ':');
-          continue;
-        }
-        if (/^(?:tanggal|waktu)\s*:?\s*(\d{1,2}[:.]\d{2})$/i.test(line)) {
-          data.time = line.replace(/^(?:tanggal|waktu)\s*:?\s*/i, '').replace('.', ':');
-          continue;
-        }
-        if (/^\d{1,2}[:.]\d{2}$/.test(line) && !data.time) {
-          data.time = line.replace('.', ':');
+        // Format Tanggal & Jam m-BCA: "19/11 21:13:05" atau "19/11/2026 21:13:05"
+        const bcaSlashDate = line.match(/^(\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?)\s+(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)/);
+        if (bcaSlashDate) {
+          let dPart = bcaSlashDate[1].replace(/-/g, '/');
+          if (/^\d{1,2}\/\d{1,2}$/.test(dPart)) {
+            dPart += '/' + new Date().getFullYear();
+          }
+          data.date = dPart;
+          data.time = bcaSlashDate[2].replace(/\./g, ':');
           continue;
         }
 
-        const idInline = line.match(/^(?:id\s*(?:transaksi|trx|referensi)|no\.?\s*ref(?:erensi)?)\s*:?\s*([A-Za-z0-9]{8,})/i);
+        // Format Tanggal nama bulan: "19 Nov 2026 • 21:13:05 WIB"
+        const dateMatch = line.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|May|Jun|Jul|Agu|Aug|Sep|Okt|Oct|Nov|Des|Dec)[a-z]*\s+\d{4})(?:[\s,•*-]+(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?))?/i);
+        if (dateMatch) {
+          data.date = dateMatch[1];
+          if (dateMatch[2]) data.time = dateMatch[2].replace(/\./g, ':');
+          continue;
+        }
+        if (/^(?:tanggal|waktu)\s*:?\s*(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)$/i.test(line)) {
+          data.time = line.replace(/^(?:tanggal|waktu)\s*:?\s*/i, '').replace(/\./g, ':');
+          continue;
+        }
+        if (/^\d{1,2}[:.]\d{2}(?:[:.]\d{2})?$/.test(line) && !data.time) {
+          data.time = line.replace(/\./g, ':');
+          continue;
+        }
+
+        // Nomor Referensi / ID Transaksi (BCA & Umum)
+        const idInline = line.match(/^(?:id\s*(?:transaksi|trx|referensi)|no\.?\s*ref(?:erensi)?|nomor\s+referensi|ref)\s*:?\s*([A-Za-z0-9]{6,})/i);
         if (idInline) {
           data.trxId = idInline[1];
           continue;
         }
-        if (/^(?:id\s*(?:transaksi|trx|referensi)|no\.?\s*ref(?:erensi)?)$/i.test(line) && /^[A-Za-z0-9]{8,}/.test(nextLine)) {
+        if (/^(?:id\s*(?:transaksi|trx|referensi)|no\.?\s*ref(?:erensi)?|nomor\s+referensi)$/i.test(line) && /^[A-Za-z0-9]{6,}/.test(nextLine)) {
           data.trxId = nextLine.replace(/[^A-Za-z0-9]/g, '');
           i++;
           continue;
         }
 
-        const methodInline = line.match(/^metode(?:\s+pembayaran)?\s*:?\s*(.+)$/i);
+        // Jenis / Metode / Layanan Transfer
+        const methodInline = line.match(/^(?:metode|jenis|layanan)(?:\s+(?:pembayaran|transfer))?\s*:?\s*(.+)$/i);
         if (methodInline) {
           let mVal = methodInline[1].trim();
           if (/^\([^)]+\)$/.test(nextLine)) {
@@ -1563,36 +1614,68 @@ Aturan ketat:
           data.method = mVal;
           continue;
         }
-        if (/^metode(?:\s+pembayaran)?$/i.test(line) && nextLine) {
+        if (/^(?:metode|jenis|layanan)(?:\s+(?:pembayaran|transfer))?$/i.test(line) && nextLine) {
           data.method = nextLine;
           i++;
           continue;
         }
 
-        const ditransferInline = line.match(/^ditransfer\s+ke\s*:?\s*(.+)$/i);
+        // Bank Tujuan (m-BCA BI-FAST / Antar Bank)
+        const bankTujuanInline = line.match(/^bank\s*tujuan\s*:?\s*(.+)$/i);
+        if (bankTujuanInline) {
+          data.bankName = bankTujuanInline[1].trim();
+          continue;
+        }
+
+        // Berita / Catatan Transfer (BCA)
+        const noteInline = line.match(/^(?:berita|catatan|keterangan)\s*:?\s*(.+)$/i);
+        if (noteInline) {
+          const nVal = noteInline[1].trim();
+          if (nVal && nVal !== '-') data.note = nVal;
+          continue;
+        }
+
+        // Format m-BCA: "Ke 8735089123" diikuti baris berikutnya "NAMA PENERIMA"
+        const mBcaKeMatch = line.match(/^ke\s*:?\s*([0-9\-]{6,22})$/i);
+        if (mBcaKeMatch) {
+          data.destAccount = mBcaKeMatch[1].trim();
+          if (nextLine && !/^(?:rp\.?|idr|berita|jenis|bank|biaya|total|no\.?|dari|nominal)/i.test(nextLine)) {
+            data.recipient = nextLine.trim();
+            i++;
+          }
+          continue;
+        }
+
+        // Abaikan rekening pengirim m-BCA ("Dari 1234567890")
+        if (/^dari\s*:?\s*[0-9\-]{6,22}$/i.test(line)) {
+          continue;
+        }
+
+        // Format myBCA / Umum: "Tujuan Transfer" / "Ditransfer ke"
+        const ditransferInline = line.match(/^(?:ditransfer\s+ke|tujuan\s+transfer)\s*:?\s*(.+)$/i);
         if (ditransferInline) {
           data.recipient = ditransferInline[1].trim();
-          if (nextLine && !/^(nominal|admin|total|metode|id\s)/i.test(nextLine)) {
+          if (nextLine && !/^(nominal|admin|total|metode|id\s|biaya|no\.)/i.test(nextLine)) {
             data.destination = nextLine.trim();
             i++;
           }
           continue;
         }
-        if (/^ditransfer\s+ke\s*:?$/i.test(line) && nextLine) {
+        if (/^(?:ditransfer\s+ke|tujuan\s+transfer)\s*:?$/i.test(line) && nextLine) {
           data.recipient = nextLine.trim();
           i++;
           const lineAfter = rawLines[i + 1] || '';
-          if (lineAfter && !/^(nominal|admin|total|metode|id\s)/i.test(lineAfter)) {
+          if (lineAfter && !/^(nominal|admin|total|metode|id\s|biaya|no\.)/i.test(lineAfter)) {
             data.destination = lineAfter.trim();
             i++;
           }
           continue;
         }
 
-        const namaInline = line.match(/^(?:nama|penerima)\s*:?\s*(.+)$/i);
+        const namaInline = line.match(/^(?:nama(?:\s+penerima)?|penerima)\s*:?\s*(.+)$/i);
         if (namaInline && !/detail penerima/i.test(line)) {
           let rName = namaInline[1].trim();
-          if (nextLine && /^[A-Z\s]{2,20}$/.test(nextLine) && !/^(akun|bank|tujuan|nominal|admin|total)/i.test(nextLine)) {
+          if (nextLine && /^[A-Z\s]{2,20}$/.test(nextLine) && !/^(akun|bank|tujuan|nominal|admin|total|biaya)/i.test(nextLine)) {
             rName += nextLine.trim();
             i++;
           }
@@ -1600,13 +1683,13 @@ Aturan ketat:
           continue;
         }
 
-        const akunInline = line.match(/^(?:akun\s*bank|bank\s*tujuan|tujuan|rekening)\s*:?\s*(.+)$/i);
+        const akunInline = line.match(/^(?:akun\s*bank|no\.?\s*rekening|nomor\s+rekening|tujuan|rekening)\s*:?\s*(.+)$/i);
         if (akunInline) {
           data.destination = akunInline[1].trim();
           continue;
         }
 
-        const kirimMatch = line.match(/kirim\s+uang\s+rp\.?\s*([\d.]+)\s+ke\s+(.+)/i);
+        const kirimMatch = line.match(/kirim\s+uang\s+(?:rp[.,]?|[i1]dr)\s*([\d.,]+)\s+ke\s+(.+)/i);
         if (kirimMatch) {
           if (!data.nominal) data.nominal = parseNominalNumber(kirimMatch[1]);
           const targetParts = kirimMatch[2].split(/\s+-\s+/);
@@ -1615,27 +1698,40 @@ Aturan ketat:
           continue;
         }
 
-        const nomMatch = line.match(/^(?:nominal|jumlah\s*transfer)\s*:?\s*rp\.?\s*([\d.]+)/i);
+        const nomMatch = line.match(/^(?:nominal(?:\s+transfer)?|jumlah(?:\s+transfer)?)\s*:?\s*(?:rp[.,]?|[i1]dr)\s*([\d.,]+)/i);
         if (nomMatch) {
           data.nominal = parseNominalNumber(nomMatch[1]);
           continue;
         }
 
-        const admMatch = line.match(/^(?:biaya\s*)?admin\s*:?\s*(gratis!?|rp\.?\s*[\d.]+)/i);
+        const admMatch = line.match(/^(?:biaya\s*)?(?:admin|transaksi)\s*:?\s*(gratis!?|(?:rp[.,]?|[i1]dr)\s*[\d.,]+)/i);
         if (admMatch) {
           data.admin = /gratis/i.test(admMatch[1]) ? 0 : parseNominalNumber(admMatch[1]);
           continue;
         }
 
-        const totMatch = line.match(/^total(?:\s+bayar|\s+transaksi)?\s*:?\s*rp\.?\s*([\d.]+)/i);
+        const totMatch = line.match(/^total(?:\s+bayar|\s+transaksi|\s+pembayaran)?\s*:?\s*(?:rp[.,]?|[i1]dr)\s*([\d.,]+)/i);
         if (totMatch) {
           data.total = parseNominalNumber(totMatch[1]);
           continue;
         }
 
-        if (!data.nominal && /^rp\.?\s*[\d.]{4,}$/i.test(line)) {
+        // Baris nominal berdiri sendiri khas m-BCA / myBCA: "Rp. 150.000,00" atau "IDR 150.000,00"
+        if (!data.nominal && /^(?:rp[.,]?|[i1]dr)\s*[\d.,]{3,}$/i.test(line)) {
           data.nominal = parseNominalNumber(line);
         }
+      }
+
+      // Gabungkan nama bank + nomor rekening tujuan jika terpisah (misal BCA Mobile)
+      if (!data.destination && (data.bankName || data.destAccount)) {
+        const bankPrefix = data.bankName || (isBcaReceipt ? 'BCA' : '');
+        data.destination = [bankPrefix, data.destAccount].filter(Boolean).join(' ');
+      } else if (data.destination && data.bankName && !data.destination.toLowerCase().includes(data.bankName.toLowerCase())) {
+        data.destination = `${data.bankName} ${data.destination}`;
+      }
+
+      if (!data.method && isBcaReceipt) {
+        data.method = 'Transfer BCA';
       }
 
       if (!data.nominal && data.total) {
@@ -1657,7 +1753,7 @@ Aturan ketat:
 
       if (data.date) out.push(`Tanggal: ${data.date}`);
       if (data.time) out.push(`Waktu: ${data.time}`);
-      if (data.trxId) out.push(`ID Trx: ${data.trxId}`);
+      if (data.trxId) out.push(`No. Ref: ${data.trxId}`);
       if (data.method) out.push(`Metode: ${data.method}`);
 
       if (data.recipient) {
@@ -1666,13 +1762,18 @@ Aturan ketat:
       }
 
       if (data.destination) {
-        const destMatch = data.destination.match(/^(.+?)\s+(\*{2,4}\d{3,6}|\d{6,})$/);
-        if (destMatch && (`Tujuan ${data.destination}`).length > width) {
+        const cleanDest = data.destination.replace(/\s*-\s*/g, ' ');
+        const destMatch = cleanDest.match(/^(.+?)\s+(\*{2,4}\d{3,6}|\d{6,})$/);
+        if (destMatch && (`Tujuan ${cleanDest}`).length > width) {
           out.push(`Bank: ${destMatch[1].trim()}`);
           out.push(`Rekening: ${destMatch[2].trim()}`);
         } else {
-          out.push(`Tujuan: ${data.destination}`);
+          out.push(`Tujuan: ${cleanDest}`);
         }
+      }
+
+      if (data.note) {
+        out.push(`Berita: ${data.note}`);
       }
 
       if (data.tokenPln) {
@@ -1700,8 +1801,14 @@ Aturan ketat:
         'no. referensi': 'No. Ref',
         'id transaksi': 'ID Trx',
         'biaya admin': 'Admin',
+        'biaya transaksi': 'Admin',
         'metode pembayaran': 'Metode',
+        'metode transfer': 'Metode',
+        'jenis transfer': 'Metode',
+        'layanan transfer': 'Metode',
+        'nominal transfer': 'Nominal',
         'total pembayaran': 'TOTAL',
+        'total transaksi': 'TOTAL',
         'total bayar': 'TOTAL'
       };
 
